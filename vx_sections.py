@@ -13,8 +13,8 @@ import datetime
 import numpy as np
 import mysql.connector
 import mylogin
-import matplotlib.pyplot as plt
 matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
 # the directory to store figures in
 FIG_DIR = "wind_cross_sections"
@@ -187,14 +187,14 @@ def main():
                     if(orientation == 'v'):
                         xlabel_idxs = [((start.x+end.x)/2, y) for y in x_axis.values+station[orientation+'1'][0]]
                         # find the minimum altitude in the range, and find it's index on the y axis
-                        min_alt_y = a[0, xlabel_idxs[0][1]:xlabel_idxs[-1][1], (start.x+end.x)/2].argmin()
-                        lower_lim = (a[0, xlabel_idxs[0][1]+min_alt_y, (start.x+end.x)/2]
-                                     / a[-1, station['v1'][0], station['v1'][1]])*100
+                        min_alt_y = a[i, 0, xlabel_idxs[0][1]:xlabel_idxs[-1][1], (start.x+end.x)/2].argmin()
+                        lower_lim = (a[i, 0, xlabel_idxs[0][1]+min_alt_y, (start.x+end.x)/2]
+                                     / a[i, -1, station['v1'][0], station['v1'][1]])*100
                     else:
                         xlabel_idxs = [(x, (start.y+end.y)/2) for x in x_axis.values+loc_dict[station][orientation+'1'][1]]
-                        min_alt_x = a[0, (start.x+end.x)/2, xlabel_idxs[0][0]:xlabel_idxs[-1][0]].argmin()
-                        lower_lim = (a[0, (start.x+end.x)/2, xlabel_idxs[0][1]+min_alt_x]
-                                     / a[-1, station['v1'][0], station['v1'][1]])*100
+                        min_alt_x = a[i, 0, (start.x+end.x)/2, xlabel_idxs[0][0]:xlabel_idxs[-1][0]].argmin()
+                        lower_lim = (a[i, 0, (start.x+end.x)/2, xlabel_idxs[0][1]+min_alt_x]
+                                     / a[i, -1, station['v1'][0], station['v1'][1]])*100
                     latlons = ['%0.2f,\n%0.2f' % (lats[y, x], lons[y, x]) for x, y in xlabel_idxs]
 
                     # Create the figure
