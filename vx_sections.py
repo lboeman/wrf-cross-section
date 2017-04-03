@@ -82,7 +82,7 @@ def get_wspd(u, v):
     """
     time = datetime.datetime.now()
     wspd = np.sqrt(u[:]**2+v[:]**2)
-    print(datetime.datetime.now()-time)
+    print datetime.datetime.now()-time
     return wspd
 
 
@@ -129,36 +129,36 @@ def main():
         loc_dict[station]["h1"] = tunnel_dist(lats, lons, lat, lon-SPREAD)
         loc_dict[station]["h2"] = tunnel_dist(lats, lons, lat, lon+SPREAD)
     # DEBUG STUFF
-    print("---Location Dict---\n")
-    print(loc_dict)
-    print('\n' + filename)
+    print "---Location Dict---\n"
+    print loc_dict
+    print '\n' + filename
     # get z-variable(pressure), convert it to altitude
     time = datetime.datetime.now()
-    print('getting z')
+    print 'getting z'
     z = getvar(wrf_data, "p", units="mb", meta=False, timeidx=None)
     a = pth(z * units.mbar)
     a = np.array(a)
-    print('got z')
-    print(datetime.datetime.now()-time)
+    print 'got z'
+    print datetime.datetime.now()-time
     time = datetime.datetime.now()
     # get Windspeed
     # wspd = getvar(wrf_data, "wspd_wdir", units="kt", meta=False)[0,:]
-    print('getting u')
+    print 'getting u'
     u = destagger(wrf_data['U'][:], -1)
-    print('got u')
-    print(datetime.datetime.now()-time)
+    print 'got u'
+    print datetime.datetime.now()-time
     time = datetime.datetime.now()
-    print('getting v')
+    print 'getting v'
     v = destagger(wrf_data['V'][:], -2)
-    print('got v')
-    print(datetime.datetime.now()-time)
+    print 'got v'
+    print datetime.datetime.now()-time
     time = datetime.datetime.now()
-    print('getting wspdv')
+    print 'getting wspdv'
     wspd = get_wspd(u, v)
-    print('got v')
-    print(datetime.datetime.now()-time)
+    print 'got v'
+    print datetime.datetime.now()-time
     time = datetime.datetime.now()
-    print('Data collected. Creating plots')
+    print 'Data collected. Creating plots'
     # loop through locations and create cross sections
     for location in loc_dict:
         figure_path = '%s/%s' % (FIG_DIR, station)
@@ -249,8 +249,8 @@ def main():
                     plt.savefig(figname)
                     plt.close(fig)
         break
-    print('all plots created')
-    print(datetime.datetime.now()-time)
+    print 'all plots created'
+    print datetime.datetime.now()-time
 
 
 if __name__ == "__main__":
