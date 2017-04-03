@@ -44,8 +44,8 @@ def get_weather_file():
     """
     location = '/a4/uaren/%s/WRFGFS_06Z/wrfsolar_d02_hourly.nc'
     now = datetime.datetime.now()
-    #return location % (now.strftime("%Y/%m/%d"))
-    return location % '2017/03/16'
+    return location % (now.strftime("%Y/%m/%d"))
+    #return location % '2017/03/16'
 
 def tunnel_dist(lat_ar,lon_ar,lat,lon):
     """ tunnel distance: finds the index of the closest point assuming
@@ -61,7 +61,7 @@ def tunnel_dist(lat_ar,lon_ar,lat,lon):
         lon: float
             the target longitude
     """
-    rad_factor = pi/180.0       # cos/sin require angles in rads
+    rad_factor = pi/180.0 # cos/sin require angles in rads
     lats = lat_ar[:] * rad_factor
     lons = lon_ar[:] * rad_factor
     lat_rad = lat * rad_factor
@@ -82,7 +82,6 @@ def get_wspd(u,v):
     """
     time = datetime.datetime.now()
     wspd = np.sqrt(u[:]**2+v[:]**2)
-    wspd = wspd*1.94384 # convert to kt
     print datetime.datetime.now()-time
     return wspd
 
@@ -143,7 +142,7 @@ def main():
     print datetime.datetime.now()-time
     time = datetime.datetime.now()
     # get Windspeed
-    #wspd = getvar(wrf_data, "wspd_wdir", units="kt", meta=False)[0,:]
+    # wspd = getvar(wrf_data, "wspd_wdir", units="kt", meta=False)[0,:]
     print 'getting u'
     u = destagger(wrf_data['U'][:],-1)
     print 'got u'
@@ -161,8 +160,9 @@ def main():
     time = datetime.datetime.now()  
     print 'Data collected. Creating plots'
     # loop through locations and create cross sections
-    for station in loc_dict:
+    for location in loc_dict:
         figure_path = '%s/%s' % (FIG_DIR,station)
+        station = loc_dict[location]
         if not os.path.isdir(figure_path):
             os.mkdir(figure_path)
         for closeup in(False,True):
@@ -175,62 +175,70 @@ def main():
                     if not os.path.isdir("%s/%s" % (figure_path,orientation)):
                         os.mkdir("%s/%s" % (figure_path,orientation))
                     #get the index of the station's altitude as well as the index of 2km above.
-                    station_altitude_idx = loc_dict[station]['elevation']/(a[i,-1,loc_dict[station]['v1'][0],loc_dict[station]['v1'][1]]*10)
-                    y_limit = get_altitude_index(a[i,:,loc_dict[station]['v1'][0],loc_dict[station]['v1'][1]],(loc_dict[station]['elevation']/1000)+2)
+                    station_altitude_idx = station['elevation']/(a[i,-1,station['v1'][0],station['v1'][1]]*10)
 
-                    start = CoordPair(x=loc_dict[station][orientation+'1'][1],y=loc_dict[station][orientation+'1'][0])
-                    end = CoordPair(x=loc_dict[station][orientation+'2'][1],y=loc_dict[station][orientation+'2'][0]) 
+                    start = CoordPair(x=station[orientation+'1'][1],y=station[orientation+'1'][0])
+                    end = CoordPair(x=station[orientation+'2'][1],y=station[orientation+'2'][0]) 
                     wspd_cross = vertcross(wspd[i], a[i], wrfin=wrf_data, cache=None,
                                            start_point=start, end_point=end, latlon=False,meta=True)
                     # generate labels for the x axis - not entirely accurate due to the interpolation
                     # done by vertcross()
                     x_axis = wspd_cross.dim_1
                     if(orientation == 'v'):
-                        xlabel_idx = [((start.x+end.x)/2, y) for y in x_axis.values+loc_dict[station][orientation+'1'][0]]
+                        xlabel_idx = [((start.x+end.x)/2, y) for y in x_axis.values+station[orientation+'1'][0]]
+                        # find the minimum altitude in the range, and find it's index on the y axis
+                        min_alt_y = a[0,xlabel_idxs[0][1]:xlabel_idxs[-1][1],(start.x+end.x)/2].argmin()
+                        lower_lim = (a[0,xlabel_idxs[0][1]+min_alt_y,(start.x+end.x)/2]\
+                                    /a[-1,station['v1'][0],station['v1'][1]])*100
                     else:
                         xlabel_idx = [(x, (start.y+end.y)/2) for x in x_axis.values+loc_dict[station][orientation+'1'][1]]
+                        min_alt_x = a[0,(start.x+end.x)/2,xlabel_idxs[0][0]:xlabel_idxs[-1][0]].argmin()
+                        lower_lim = (a[0,(start.x+end.x)/2,xlabel_idxs[0][1]+min_alt_x]\
+                                    /a[-1,station['v1'][0],station['v1'][1]])*100
                     latlons = ['%0.2f,\n%0.2f' % (lats[y,x],lons[y,x]) for x,y in xlabel_idx ]
 
                     # Create the figure
                     fig = plt.figure(figsize=(12,6))
                     ax = plt.axes()
-
-                    # Make the contour plot
-                    wspd_contours = ax.contourf(to_np(wspd_cross))
+                    
+                    max_wspd = 60
                     if closeup:
-                        wspd_contours.set_clim(0,40)
-                        plt.ylim(station_altitude_idx,y_limit)
-                    else:
-                        wspd_contours.set_clim(0,100)
+                        max_wspd = 25
+                        y_limit = (station['elevation']+2000)/(a[-1,station['origin'][0],station['origin'][1]]*10)
+                        plt.ylim(lower_lim,y_limit)
+                    # Make the contour plot
+                    wspd_contours = ax.contourf(to_np(wspd_cross),levels=np.linspace(0,max_wspd),extend='max')
+                    wspd_contours.set_clim(0,max_wspd)
 
                     # Add the color bar
                     bar = plt.colorbar(wspd_contours, ax=ax)
                     bar.set_label("Windspeed (kt)")
-
+                    # Set y axis labels
                     ylabel_idx = ax.get_yticks()/100
-                    ylabels = ylabel_idx*a[i,-1,loc_dict[station]['v1'][0],loc_dict[station]['v1'][1]]*1000
+                    ylabels = ylabel_idx*a[i,-1,station['v1'][0],station['v1'][1]]*1000
                     ax.set_yticklabels(ylabels.astype(int))
-
+                    # Set x axis labels
                     xlabel_idx = ax.get_xticks()[:-1].astype(int).tolist()
                     xlabels = [latlons[x] for x in xlabel_idx]
                     ax.set_xticklabels(xlabels, rotation=0)
+
                     ax.set_xlabel("Latitude, Longitude", fontsize=12)
                     ax.set_ylabel("Altitude (m)", fontsize=12)
                     orientation_tag = 'North-South'
 
                     if(orientation =='h'):
-                        orientation_tag = 'East-West'
+                        orientation_tag = 'West-East'
                     if closeup:
                         orientation_tag += '-2km'
                     plt.title("Vertical Cross Section of Wind Speed (kt) \n %s(%0.2f,%0.2f) %s"
-                              % (station,loc_dict[station]['lat'],loc_dict[station]['lon'],orientation_tag))
+                              % (location,station['lat'],station['lon'],orientation_tag))
                     plt.tight_layout()
                     if(orientation == 'h'):
-                        plt.plot(math.fabs(loc_dict[station]['origin'][1]-start.x),
+                        plt.plot(math.fabs(station['origin'][1]-start.x),
                          station_altitude_idx,
                          marker='x', markersize=6, color="red", label=station )
                     else:
-                        plt.plot(math.fabs(loc_dict[station]['origin'][0]-start.y),
+                        plt.plot(math.fabs(station['origin'][0]-start.y),
                                 station_altitude_idx,
                                 marker='x', markersize=6, color="red", label=station )
                     plt.legend(loc=3)
@@ -245,4 +253,4 @@ def main():
     print datetime.datetime.now()-time
 
 if __name__ == "__main__":
-    main()    
+    main()
