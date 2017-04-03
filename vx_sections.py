@@ -161,8 +161,10 @@ def main():
     print 'Data collected. Creating plots'
     # loop through locations and create cross sections
     for location in loc_dict:
-        figure_path = '%s/%s' % (FIG_DIR, station)
+        figure_path = '%s/%s' % (FIG_DIR, location)
         station = loc_dict[location]
+        print location
+        print figure_path
         if not os.path.isdir(figure_path):
             os.mkdir(figure_path)
         for closeup in(False, True):
@@ -191,9 +193,9 @@ def main():
                         lower_lim = (a[i, 0, xlabel_idxs[0][1]+min_alt_y, (start.x+end.x)/2]
                                      / a[i, -1, station['v1'][0], station['v1'][1]])*100
                     else:
-                        xlabel_idxs = [(x, (start.y+end.y)/2) for x in x_axis.values+loc_dict[station][orientation+'1'][1]]
-                        min_alt_x = a[i, 0, (start.x+end.x)/2, xlabel_idxs[0][0]:xlabel_idxs[-1][0]].argmin()
-                        lower_lim = (a[i, 0, (start.x+end.x)/2, xlabel_idxs[0][1]+min_alt_x]
+                        xlabel_idxs = [(x, (start.y+end.y)/2) for x in x_axis.values+station[orientation+'1'][1]]
+                        min_alt_x = a[i, 0, (start.y+end.y)/2, xlabel_idxs[0][0]:xlabel_idxs[-1][0]].argmin()
+                        lower_lim = (a[i, 0, (start.y+end.y)/2, xlabel_idxs[0][1]+min_alt_x]
                                      / a[i, -1, station['v1'][0], station['v1'][1]])*100
                     latlons = ['%0.2f,\n%0.2f' % (lats[y, x], lons[y, x]) for x, y in xlabel_idxs]
 
@@ -204,7 +206,7 @@ def main():
                     max_wspd = 60
                     if closeup:
                         max_wspd = 25
-                        y_limit = (station['elevation']+2000)/(a[-1, station['origin'][0], station['origin'][1]]*10)
+                        y_limit = (station['elevation']+2000)/(a[i,-1, station['origin'][0], station['origin'][1]]*10)
                         plt.ylim(lower_lim, y_limit)
                     # Make the contour plot
                     wspd_contours = ax.contourf(to_np(wspd_cross), levels=np.linspace(0, max_wspd), extend='max')
@@ -212,7 +214,7 @@ def main():
 
                     # Add the color bar
                     bar = plt.colorbar(wspd_contours, ax=ax)
-                    bar.set_label("Windspeed (kt)")
+                    bar.set_label("Windspeed (m/s)")
                     # Set y axis labels
                     ylabel_idx = ax.get_yticks()/100
                     ylabels = ylabel_idx*a[i, -1, station['v1'][0], station['v1'][1]]*1000
@@ -230,17 +232,17 @@ def main():
                         orientation_tag = 'West-East'
                     if closeup:
                         orientation_tag += '-2km'
-                    plt.title("Vertical Cross Section of Wind Speed (kt) \n %s(%0.2f,%0.2f) %s"
+                    plt.title("Vertical Cross Section of Wind Speed (m/s) \n %s(%0.2f,%0.2f) %s"
                               % (location, station['lat'], station['lon'], orientation_tag))
                     plt.tight_layout()
                     if(orientation == 'h'):
                         plt.plot(math.fabs(station['origin'][1]-start.x),
                                  station_altitude_idx,
-                                 marker='x', markersize=6, color="red", label=station)
+                                 marker='x', markersize=6, color="red", label=location)
                     else:
                         plt.plot(math.fabs(station['origin'][0]-start.y),
                                  station_altitude_idx,
-                                 marker='x', markersize=6, color="red", label=station)
+                                 marker='x', markersize=6, color="red", label=location)
                     plt.legend(loc=3)
                     plt.text(.65, -.15, 'Initialized:' + init.strftime('%y/%m/%d %H:%M:%S') +
                              ' Valid:' + (init+timedelta(hours=i)).strftime('%y/%m/%d %H:%M:%S'),
