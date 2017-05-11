@@ -1,11 +1,11 @@
+from math import pi
 from netCDF4 import Dataset
 from numpy import cos, sin
-from metpy.calc import pressure_to_height_std as pth
+from metpy.calc import pressure_to_height_std
 from metpy.units import units
 from datetime import timedelta
 from bokeh.plotting import (figure, output_file)
 from bokeh.palettes import Viridis256
-from math import pi
 from dateutil.parser import parse
 from bokeh.io import show
 from bokeh.models import (
@@ -13,20 +13,21 @@ from bokeh.models import (
     HoverTool,
     LinearColorMapper,
     BasicTicker,
-    PrintfTickFormatter as ptf,
+    PrintfTickFormatter,
     ColorBar,
     CustomJS,
     Slider
 )
 from bokeh.layouts import column, widgetbox
-from serverscripts.utils import (handle_exception,
-                                 basic_logging_config,
-                                 log_to_file
-                                 )
-import argparse
-import logging
+from serverscripts.utils import (
+    handle_exception,
+    basic_logging_config,
+    log_to_file
+)
 import sys
 import os
+import argparse
+import logging
 import datetime
 import numpy as np
 import pandas as pd
@@ -35,59 +36,58 @@ import mylogin
 
 # the directory to store figures in
 FIG_DIR = "wind_cross_sections"
+
+# the directory in which to find the data files
 DATA_DIR = "/a4"
 
-
-def get_altitude_index(a, alt):
-    """Returns the index of the desired altitude in a.
-    parameters
-    ----------
-    a: array-like object
-        The sequence of altitudes to search through
-    alt: float
-        The desired altitude to look for
-
-    """
-    i = 0
-    for v in a:
-        if v >= alt:
-            break
-        i += 1
-    return i
+# The spread over which to create the cross section in wrf grid points
+# ~1.8km each
+SPREAD = 10
 
 
 def get_weather_file(time, model):
-    """ Returns the location of current weather data as a string, None
-        if the file does not exist
-    parameters
+    """
+    Returns the location of current weather data as a string, None
+    if the file does not exist.
+
+    Parameters
     ----------
     time: datetime object
-        The desired time for the model run
+         The desired time for the model run.
     model: string
-        The model to search for i.e. 'GFS'
+         The model to search for i.e. 'GFS'.
+
+    Returns
+    -------
+    string
+       The path to the desired wrf data file or None.
     """
     location = '%s/uaren/%s/WRF%s_%sZ/wrfsolar_d02_hourly.nc'
     location = location % (DATA_DIR, time.strftime("%Y/%m/%d"),
                            model, time.strftime("%H"))
-    if not(os.path.isfile(location)):
-        return None
-    else:
-        return location
+    return location
 
 
 def tunnel_dist(lat_ar, lon_ar, lat, lon):
-    """ tunnel distance: finds the index of the closest point assuming
-        a spherical earth
-        parameters
-        ----------
-        lat_ar: numpy array
-            the array of the corresponding netCDF's latitude variable
-        lon_ar: numpy array
-            the arrray of the corresponding netCDF's longitude variable
-        lat: float
-            the target latitude
-        lon: float
-            the target longitude
+    """
+    Finds the index of the closest point assuming a spherical earth.
+
+    Parameters
+    ----------
+    lat_ar: numpy array
+        The array of the corresponding netCDF's latitude variable
+    lon_ar: numpy array
+        The arrray of the corresponding netCDF's longitude variable
+    lat: float
+        The target latitude
+    lon: float
+        The target longitude
+
+    Returns
+    -------
+    List
+        A list of ints, length 2 representing the y,x coordinates in
+        the wrf file.
     """
     rad_factor = pi/180.0  # cos/sin require angles in rads
     lats = lat_ar[:] * rad_factor
@@ -106,27 +106,45 @@ def tunnel_dist(lat_ar, lon_ar, lat, lon):
     return [y, x]
 
 
-def createTerminalPoints(loc_dict, lats, lons, spread):
-    for station in loc_dict:
-            lat = loc_dict[station]['lat']
-            lon = loc_dict[station]['lon']
-            loc_dict[station]['origin'] = tunnel_dist(lats, lons, lat, lon)
-            loc_dict[station]["v1"] = [loc_dict[station]['origin'][0]-spread,
-                                       loc_dict[station]['origin'][1]]
-            loc_dict[station]["v2"] = [loc_dict[station]['origin'][0]+spread,
-                                       loc_dict[station]['origin'][1]]
-            loc_dict[station]["h1"] = [loc_dict[station]['origin'][0],
-                                       loc_dict[station]['origin'][1]-spread]
-            loc_dict[station]["h2"] = [loc_dict[station]['origin'][0],
-                                       loc_dict[station]['origin'][1]+spread]
+def create_terminal_points(loc_dict, lats, lons, spread):
+    """
+    Takes a dictionary of locations with latitude and longitude and finds
+    the origin, and then terminal points for South-North and West-East
+    cross sections.
+
+    Parameters
+    ----------
+    loc_dict: dictionary
+        A dictionary where each key is a location with 'lat' and 'lon'.
+    lats: array_like
+        The latitudes from the wrf file.
+    lons: array_like
+        The longitudes from the wrf file.
+    spread:
+        The number of grid points the terminal points should from the origin
+        in either direction.
+    """
+    for station in loc_dict.values():
+            lat = station['lat']
+            lon = station['lon']
+            station['origin'] = tunnel_dist(lats, lons, lat, lon)
+            station["v1"] = [station['origin'][0]-spread,
+                             station['origin'][1]]
+            station["v2"] = [station['origin'][0]+spread,
+                             station['origin'][1]]
+            station["h1"] = [station['origin'][0],
+                             station['origin'][1]-spread]
+            station["h2"] = [station['origin'][0],
+                             station['origin'][1]+spread]
     return loc_dict
 
 
-def generatePlots(time, model, s=None):
-    """Creates bokeh cross-sections at all timesteps found in the
+def generate_plots(time, model, facility=None):
+    """
+    Creates bokeh cross-sections at all timesteps found in the
     weather data, for both South-North and West-East orientations.
 
-    parameters
+    Parameters
     ----------
     time: Datetime
         The init time of the wrf data to use.
@@ -134,7 +152,7 @@ def generatePlots(time, model, s=None):
         The model to use.
     s: string
         The name of the station to produce. Used when you would
-        like only one plot.
+        like only one plot. Defaults to None
     """
     # Mysql setup
     mysql_login = mylogin.get_login_info("selectonly")
@@ -145,7 +163,7 @@ def generatePlots(time, model, s=None):
     cursor = cnx.cursor()
     cursor.execute(query)
 
-    # Get all the lat/lons of wind stations
+    # Get the lat/lons for each wind stations
     loc_dict = {}
     for row in cursor.fetchall():
         if row[0] == 'Total Wind':
@@ -156,21 +174,21 @@ def generatePlots(time, model, s=None):
     cursor.close()
 
     # If the user passed in a station, check that it exists
-    if s is not None:
-        if s in loc_dict:
-            loc_dict = {s:loc_dict[s]}
-            logging.debug('Using station %s.\n %s' % (s,loc_dict))
+    if facility is not None:
+        if facility in loc_dict:
+            loc_dict = {facility: loc_dict[facility]}
+            logging.debug('Using station %s.\n %s' % (facility, loc_dict))
         else:
             logging.error('Given station does not exist.')
             sys.exit(1)
 
     filename = get_weather_file(time, model)
-    if filename is not None:
-        logging.info('Using file: %s' % filename)
-    else:
-        logging.error("WRF file does not exist.")
+
+    try:
+        wrf_data = Dataset(filename)
+    except:
+        logging.exception("WRF file does not exist.")
         sys.exit(1)
-    wrf_data = Dataset(filename)
 
     # create the figure directory
     if not os.path.isdir(FIG_DIR):
@@ -182,12 +200,8 @@ def generatePlots(time, model, s=None):
     lats = wrf_data.variables['XLAT']
     lons = wrf_data.variables['XLONG']
 
-    # The spread over which to create the cross section in wrf grid points
-    # ~1.8km each
-    SPREAD = 10
-
     # Add start and end points for both north-south and east-west cross section
-    loc_dict = createTerminalPoints(loc_dict, lats, lons, SPREAD)
+    loc_dict = create_terminal_points(loc_dict, lats, lons, SPREAD)
 
     # loop through the locations and generate plots
     for location in loc_dict:
@@ -199,16 +213,15 @@ def generatePlots(time, model, s=None):
             os.mkdir(figure_path)
 
         # Repeat plotting code for v(South-North), and h(West-East)
-        for o in ['v', 'h']:
-            figure_path = os.path.join(FIG_DIR, location, o)
+        for orientation in ['vertical', 'horizontal']:
+            figure_path = os.path.join(FIG_DIR, location, orientation)
 
             if not os.path.isdir(figure_path):
                 os.mkdir(figure_path)
 
-            ll_set = False
             plot_title = location
 
-            if o == 'v':
+            if orientation == 'vertical':
                 plot_title = plot_title+' South-North'
             else:
                 plot_title = plot_title+' West-East'
@@ -217,74 +230,60 @@ def generatePlots(time, model, s=None):
             dframe = pd.DataFrame()
             # Gather data for each time index
             origin = station['origin']
-            tf = '%y/%m/%d %H:%M:%SZ'  # time format
-            for t in range(0, wrf_data['PB'].shape[0]):
-                if o == 'v':
-                    v1 = station['v1']
-                    v2 = station['v2']
-                    pr = (wrf_data['PB'][t, :,
-                                         v1[0]:v2[0],
-                                         origin[1]] +
-                          wrf_data['P'][t, :,
-                                        v1[0]:v2[0],
-                                        origin[1]])
+            time_format = '%y/%m/%d %H:%M:%SZ'
+            for time in range(0, wrf_data['PB'].shape[0]):
+                if orientation == 'vertical':
+                    y_range = range(station['v1'][0], station['v2'][0])
+                    x_range = origin[1]
 
-                    wx = wrf_data['U'][t, :,
-                                       v1[0]:v2[0],
-                                       origin[1]]
-
-                    wy = wrf_data['V'][t, :,
-                                       v1[0]:v2[0],
-                                       origin[1]]
                     latlons = ['%0.2f,%0.2f' %
                                (lats[y, origin[1]],
                                 lons[y, origin[1]])
-                               for y in range(v1[0],
-                                              v2[0])]
+                               for y in y_range]
                 else:
-                    h1 = station['h1']
-                    h2 = station['h2']
-                    pr = (wrf_data['PB'][t, :, origin[0], h1[1]:h2[1]] +
-                          wrf_data['P'][t, :, origin[0], h1[1]:h2[1]])
-                    wx = wrf_data['U'][t, :, origin[0], h1[1]:h2[1]]
-                    wy = wrf_data['V'][t, :, origin[0], h1[1]:h2[1]]
-                    latlons = ['%0.2f,%0.2f' % (lats[origin[0], x],
-                                                lons[origin[0], x])
-                               for x in range(h1[1], h2[1])]
+                    y_range = origin[0]
+                    x_range = range(station['h1'][1], station['h2'][1])
 
-                a = pth(pr * units.pascal)  # convert pressure to height
-                a = np.array(a)
-                a = a * 1000  # km to m
+                    latlons = ['%0.2f,%0.2f' %
+                               (lats[origin[0], x],
+                                lons[origin[0], x])
+                               for x in x_range]
+                pr = (wrf_data['PB'][time, :, y_range, x_range] +
+                      wrf_data['P'][time, :, y_range, x_range])
+
+                wx = wrf_data['U'][time, :, y_range, x_range]
+
+                wy = wrf_data['V'][time, :, y_range, x_range]
+
+                height = pressure_to_height_std(pr * units.pascal)
+                height = np.array(height)
+                height = height * 1000  # km to m
                 wspd = np.sqrt(wx**2 + wy**2)
-                heights = []
                 # calculate the height at each index
-                for x in range(0, len(a)-1):
-                    heights.extend(a[x+1]-a[x])
-
+                heights = np.diff(height, axis=0)
                 # Append heights for last index, this just reuses
                 # the second to last value
-                heights.extend([heights[-1]]*20)
+                last_value = np.reshape(heights[-1, :], (1, SPREAD*2))
+                heights = np.vstack((heights, last_value))
 
                 # build the source dataframe
-                ys = a.ravel()
-                ys = [ys[i]+heights[i]/2 for i in range(0, len(ys))]
-                i = str(t)
-                dframe['y'+i] = ys
-                dframe['h'+i] = heights
+                ys = height+(heights/2)
+                i = str(time)
+                dframe['y'+i] = ys.ravel()
+                dframe['h'+i] = heights.ravel()
                 dframe['w'+i] = wspd.ravel()
-                dframe['t'+i] = (init+timedelta(hours=t)).strftime(tf)
-                if ll_set is not True:
-                    dframe['ll'] = latlons * wrf_data['P'].shape[1]
-                    ll_set = True
-                logging.debug(t)
+                valid_time = init+timedelta(hours=time)
+                dframe['t'+i] = (valid_time).strftime(time_format)
+                logging.debug(time)
 
+            dframe['ll'] = latlons * wrf_data['P'].shape[1]
             # Setup bokeh plot
-            init_title = (plot_title+'  Initialized: ' +
-                          init.strftime(tf))
-            init_title = (init_title+'    Valid: ' +
-                          (init+timedelta(hours=t)).strftime(tf))
+            init_title = ('%s  Initialized: %s   Valid: %s' % (
+                          plot_title,
+                          init.strftime(time_format),
+                          (init+timedelta(hours=time)).strftime(time_format)))
             mapper = LinearColorMapper(palette=Viridis256, low=0, high=40)
-            TOOLS = "pan,wheel_zoom,reset,hover,save"
+            tools = "pan,wheel_zoom,reset,hover,save"
             source = ColumnDataSource(dframe)
             # Initialize bokeh figure
             pf = figure(title=init_title,
@@ -292,7 +291,7 @@ def generatePlots(time, model, s=None):
                         plot_width=1000, plot_height=600,
                         x_axis_label="Latitude, Longitude",
                         y_axis_label="Altitude(m)",
-                        tools=TOOLS, toolbar_location='left',
+                        tools=tools, toolbar_location='left',
                         toolbar_sticky=False)
             # Plot rectangles representing each point of data
             rects = pf.rect(x='ll', y='y0',
@@ -303,10 +302,11 @@ def generatePlots(time, model, s=None):
             # Plot the position  of the station as a red x
             pf.cross(x=[latlons[10]], y=[station['elevation']],
                      size=10, color="#FF0000", legend=location)
+            bokeh_formatter = PrintfTickFormatter(format="%d m/s")
             color_bar = ColorBar(color_mapper=mapper,
                                  major_label_text_font_size="8pt",
                                  ticker=BasicTicker(desired_num_ticks=10),
-                                 formatter=ptf(format="%d m/s"),
+                                 formatter=bokeh_formatter,
                                  label_standoff=10,
                                  border_line_color=None,
                                  location=(0, 0))
@@ -315,6 +315,7 @@ def generatePlots(time, model, s=None):
             pf.select_one(HoverTool).tooltips = [
                  ('position', '@ll'),
                  ('wspd', '@w0'),
+                 ('altitude', "@y0{int}"),
             ]
 
             cbcallback = CustomJS(args=dict(),
@@ -338,6 +339,7 @@ def generatePlots(time, model, s=None):
                 rects.glyph.y.field = "y"+slider.value;
                 rects.glyph.fill_color.field = "w"+slider.value;
                 ht.tooltips[1][1] = "@w"+slider.value;
+                ht.tooltips[1][2] = "@y"+slider.value;
                 var title = plot.attributes.title.attributes
                 .text.slice(0,-18);
                 plot.attributes.title
@@ -349,8 +351,9 @@ def generatePlots(time, model, s=None):
                              callback=tcallback)
             tcallback.args['slider'] = tslider
             figure_name = os.path.join(FIG_DIR, location,
-                                       o, init.strftime('%y%m%d%H%M%S'))
-            output_file(figure_name)
+                                       orientation,
+                                       init.strftime('%y%m%d%H%M%S'))
+            output_file(figure_name+'.html')
             layout = column(
                 pf,
                 widgetbox(cbslider),
@@ -361,10 +364,11 @@ def generatePlots(time, model, s=None):
 
 def main():
     """Parses arguments from the command line and calls
-    generatePlots(). Woo.
+    generate_plots(). Woo.
     """
     # define valid models
-    MODELS = ['GFS', 'NAM']
+    models = ('GFS', 'NAM')
+
     sys.excepthook = handle_exception
     basic_logging_config()
     argparser = argparse.ArgumentParser(
@@ -396,10 +400,10 @@ def main():
     except:
         logging.exception("Incorrect time format.")
         sys.exit(1)
-    if args.model not in MODELS:
+    if args.model not in models:
         logging.error("Invalid Model")
         sys.exit(1)
-    generatePlots(wrf_time, args.model, args.station)
+    generate_plots(wrf_time, args.model, args.station)
 
 
 if __name__ == "__main__":
