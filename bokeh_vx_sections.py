@@ -123,6 +123,11 @@ def create_terminal_points(loc_dict, lats, lons, spread):
     spread:
         The number of grid points the terminal points should from the origin
         in either direction.
+
+    Returns
+    -------
+    Dictionary
+        Updated location dictionary with terminal points and origin.
     """
     for station in loc_dict.values():
             lat = station['lat']
@@ -150,7 +155,7 @@ def generate_plots(time, model, facility=None):
         The init time of the wrf data to use.
     model: string
         The model to use.
-    s: string
+    facility: string
         The name of the station to produce. Used when you would
         like only one plot. Defaults to None
     """
