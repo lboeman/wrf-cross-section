@@ -38,11 +38,10 @@ class CrossSectionData(object):
         "vertical" or "horizontal"
     times: set of ints
         The time steps present in the dataframe.
-    
     """
     spread = 10
 
-    def tunnel_dist(self, lat_ar, lon_ar, lat, lon):
+    def _tunnel_dist(self, lat_ar, lon_ar, lat, lon):
         """
         Finds the index of the closest point assuming a spherical earth.
         Parameters
@@ -77,7 +76,7 @@ class CrossSectionData(object):
         y, x = np.unravel_index(idx, lats.shape)
         return [y, x]
 
-    def get_location_data(self):
+    def _gather_location_data(self):
         """Gathers information about each wind station
         in the database and adds it to location_dict.
         """
@@ -100,19 +99,20 @@ class CrossSectionData(object):
                                           'elevation': float(row[3])}
         cursor.close()
 
-    def create_terminal_points(self):
+    def _create_terminal_points(self):
         """
         Sets up the terminal points for cross sections in the
-        location_dict attribute.
+        location_dict attribute. Should only be called by the
+        constructor during instantiation.
 
         """
         spread = self.spread
         for station in self.location_dict.values():
                 lat = station['lat']
                 lon = station['lon']
-                station['origin'] = self.tunnel_dist(self.lats,
-                                                     self.lons,
-                                                     lat, lon)
+                station['origin'] = self._tunnel_dist(self.lats,
+                                                      self.lons,
+                                                      lat, lon)
                 station["v1"] = [station['origin'][0]-spread,
                                  station['origin'][1]]
                 station["v2"] = [station['origin'][0]+spread,
@@ -133,13 +133,13 @@ class CrossSectionData(object):
         self.lons = self.wrf_data.variables['XLONG']
 
         self.source_data = pd.DataFrame()
-        self.get_location_data()
-        self.create_terminal_points()
+        self._gather_location_data()
+        self._create_terminal_points()
         self._station = self.location_dict.keys()[0]
-        self.orientation = 'vertical'
+        self._orientation = 'vertical'
         self.times = set()
         self.init = datetime.datetime.strptime(
-                            wrf_data.START_DATE,
+                            self.wrf_data.START_DATE,
                             '%Y-%m-%d_%X'
                             )
 
@@ -160,8 +160,24 @@ class CrossSectionData(object):
         self.source_data = pd.DataFrame()
         self.times = set()
 
-    def list_stations():
-        return location_dict.keys()
+    @property
+    def orientation(self):
+        """Getter for orientation"""
+        return self._orientation
+
+    @orientation.setter
+    def orientation(self, new_orientation):
+        """Setter for orientation, if value changed, reset
+        times and source_data
+        """
+        if new_orientation == self._orientation:
+            return None  # do nothing
+        self._orientation = new_orientation
+        self.source_data = pd.DataFrame()
+        self.times = set()
+
+    def list_stations(self):
+        return self.location_dict.keys()
 
     def update_source(self, time):
         """Rebuilds source_data for the current station and
@@ -176,7 +192,7 @@ class CrossSectionData(object):
         origin = station['origin']
         time_format = '%y/%m/%d %H:%M:%SZ'
 
-        if self.orientation == 'vertical':
+        if self._orientation == 'vertical':
             y_range = range(station['v1'][0], station['v2'][0])
             x_range = origin[1]
 
@@ -220,5 +236,5 @@ class CrossSectionData(object):
         self.source_data['w'+i] = wspd.ravel()
         valid_time = self.init+datetime.timedelta(hours=time)
         self.source_data['t'+i] = (valid_time).strftime(time_format)
-        if 'll' not in self.source.index:
+        if 'll' not in self.source_data.index:
             self.source_data['ll'] = latlons * self.wrf_data['P'].shape[1]

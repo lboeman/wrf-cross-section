@@ -69,10 +69,16 @@ def get_weather_file(time, model):
     return location
 
 def colorbar_change():
+    """Callback for cbar_slider, sets the maximum value of
+    the colorbar to the slider value
+    """
     mapper.high = cbar_slider.value
 
 def update_title(time):
-    ime_format = '%y/%m/%d %H:%M:%SZ'
+    """ Returns the current name for the plot based on
+    station, time and orientation.
+    """
+    time_format = '%y/%m/%d %H:%M:%SZ'
     plot_title = bokeh_source.station
 
     if bokeh_source.orientation == 'vertical':
@@ -87,21 +93,31 @@ def update_title(time):
     return plot_title
 
 
-def update_glyph_sources(i):
-    rects.y = 'y%d' % i
-    rects.height = 'h%d' % i
-    rects.fill_color.field = 'w%d' % i 
-    pf.select_one(HoverTool).tooltops = [
+def update_glyph_sources(time):
+    """ Updates the indices for the glyph based on time."""
+    rects.y = 'y%d' % time
+    rects.height = 'h%d' % time
+    rects.fill_color.field = 'w%d' % time 
+    pf.select_one(HoverTool).tooltips = [
         ('position', '@ll'),
-        ('wspd', '@w%s' % i),
-        ('altitude', '@y%s' % i)
+        ('wspd', '@w%s' % time),
+        ('altitude', '@y%s' % time)
     ]
+
 def update_figure(time):
+    """ Updates the plot's title and x_range. Used when the
+    station or orientation changed.
+    """
     pf.title = update_title(time)
     latlons = bokeh.source_data['ll']
     pf.x_range = latlons[0:(2*bokeh_source.spread)+1]
 
 def station_change():
+    """Callback for station_select. Sets the station value
+    on bokeh_source, which will clear the current data, and
+    re-initializes it with the current time value. Then
+    updates the plot labels.
+    """
     time = time_slider.value
     new_station = station_select.value
     bokeh_source.station = new_station
@@ -109,6 +125,10 @@ def station_change():
     update_title(time)
 
 def time_change():
+    """Callback for time_slider. Updates bokeh_source with
+    data for the current timestep and updates the source 
+    indices for each glyph.
+    """
     time = time_slider.value
     bokeh_source.update(time)
     update_glyph_sources(time)
@@ -116,8 +136,13 @@ def time_change():
 
 
 def orientation_change():
+    """Callback for orientation_select. Sets the orientation
+    value on bokeh_source, clearing current data and 
+    re-initializes it with the current time value.
+    """
     bokeh_source.orientation = orientation_select.value
     bokeh_source.update_source(time_slider.value)
+    update_figure(time)
        
 filename = get_weather_file(time, model)
 
@@ -145,8 +170,8 @@ rects = pf.rect(x='ll', y='y0',
                 line_color=None)
 # Plot the position  of the station as a red x
 # TODO: fix this shit.
-station_pos = pf.cross(x=[latlons[10]], y=[station['elevation']],
-         size=10, color="#FF0000", legend=bokeh_source.station)
+#station_pos = pf.cross(x=[latlons[10]], y=[station['elevation']],
+#         size=10, color="#FF0000", legend=bokeh_source.station)
 bokeh_formatter = PrintfTickFormatter(format="%d m/s")
 color_bar = ColorBar(color_mapper=mapper,
                      major_label_text_font_size="8pt",
@@ -172,8 +197,8 @@ cbar_slider = Slider(start=10, end=100,
 # Time Select widget
 slider_end = bokeh_source.wrf_data['P'].shape[0]-1
 time_slider = Slider(start=0, end=slider_end,
-                 value=0, step=1, title="timestep",
-                 callback=tcallback)
+                 value=0, step=1, title="timestep",)
+time_slider.on_change
 
 # Station Select Widget
 station_select_options = bokeh_source.list_stations()
@@ -195,4 +220,4 @@ layout = row(
     inputs,
     pf
     )
-show(layout)
+curdoc().add_root(layout)
