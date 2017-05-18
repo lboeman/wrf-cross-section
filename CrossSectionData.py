@@ -1,5 +1,5 @@
 """An object for containing the source data for
-wind cross section plots
+wind cross section plots.
 """
 from math import pi
 from numpy import cos, sin
