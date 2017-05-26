@@ -1,3 +1,16 @@
+"""wrf_cross_sections.py
+
+A script which sets up a bokeh figure and interactions for wrf
+windspeed cross sections.
+
+Notes
+-----
+Required environment variables:
+MYSQL_CRED: A string to be passed to mylogin.get_login_info()
+            defaults to "selectonly"
+WRF_DATA_DIRECTORY: the path to the directory in which the wrf
+            data can be found. 
+"""
 import os
 import datetime
 import numpy as np
@@ -342,8 +355,8 @@ time_slider = Slider(start=0, end=1,
 time_slider.on_change('value', update_datasource)
 
 # Query Mysql and build a dict of information on each available station
-print("presql")
-mysql_login = mylogin.get_login_info("selectonly")
+login_info = os.getenv('MYSQL_CRED','selectonly')
+mysql_login = mylogin.get_login_info(login_info)
 mysql_login['database'] = 'utility_data'
 conn = pymysql.connect(**mysql_login)
 
@@ -361,7 +374,6 @@ for line in cursor.fetchall():
                               'elevation': float(line[3])}
 cursor.close()
 conn.close()
-print("prewrf")
 wrf_data = open_wrf_file()
 lats = wrf_data['XLAT']
 lons = wrf_data['XLONG']
@@ -376,7 +388,6 @@ for station in location_dict.values():
     station["horizontal_range"] = range(station['origin'][1]-SPREAD,
                                         station['origin'][1]+SPREAD)
 wrf_data.close()
-print("done with daters")
 # Define widgets that are dependent on initial data.
 
 # Station Select Widget
@@ -464,5 +475,4 @@ inputs = widgetbox(
     message_panel
     )
 layout = row(inputs, fig)
-print('hi')
 curdoc().add_root(layout)

@@ -15,6 +15,3 @@
       ```
     * WRF_DATA_DIRECTORY: The path to the directory to find WRF data in. Defaults to '/a4/uaren'.
   * Serve cross sections with bokeh using:
-```
-bokeh serve wrf_cross_sections --port PORT
-```
