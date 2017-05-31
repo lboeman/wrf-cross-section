@@ -429,7 +429,7 @@ initial_source, initial_x_range = build_dataframe(
     )
 
 source = ColumnDataSource(initial_source)
-figure_title = update_title(0, "North-South")
+figure_title = update_title(0, "South-North")
 bokeh_formatter = PrintfTickFormatter(format="%d m/s")
 color_bar = ColorBar(
      color_mapper=mapper,
