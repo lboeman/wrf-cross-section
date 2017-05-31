@@ -6,21 +6,18 @@ windspeed cross sections.
 Notes
 -----
 Required environment variables:
-MYSQL_CRED: A string to be passed to mylogin.get_login_info()
-            defaults to "selectonly"
+MYSQL_CRED: The path to a file containing Mysql login credentials
+    in the form of a json object with attributes user, passwd, host
+    and port. Defaults to ~/.mysql
 WRF_DATA_DIRECTORY: the path to the directory in which the wrf
-            data can be found.
+            data can be found. Defaults to /a4/uaren.
 """
-import os
 import datetime
-import numpy as np
-import pandas as pd
-import pymysql
-import mylogin
-
-from math import pi
 from datetime import timedelta
-from dateutil import parser
+import json
+from math import pi
+import os
+
 from bokeh.plotting import (figure, curdoc)
 from bokeh.palettes import Viridis256
 from bokeh.models import (
@@ -37,8 +34,12 @@ from bokeh.models import (
     Div,
 )
 from bokeh.layouts import row, widgetbox
+from dateutil import parser
 from netCDF4 import Dataset
+import numpy as np
 from numpy import cos, sin
+import pandas as pd
+import pymysql
 
 
 # the directory in which to find the data files
@@ -72,8 +73,12 @@ def selected_date():
 
 
 def pressure_to_height(pressure):
-    """Converts pressure in Pa to height
-    Totally stollen from metpy.calc.pressure_to_height_std.
+    """Converts pressure in Pa to height.
+    Notes
+    -----
+    Adapted from metpy.calc.pressure_to_height_std, removed unit
+    checking and hardcoded variables to reduce dependencies.
+    MetPy sourcode: https://github.com/Unidata/MetPy
     """
     t0 = 288
     gamma = 6.5
@@ -141,7 +146,8 @@ def get_weather_file():
 
 
 def open_wrf_file():
-    """Returns an netCDF Dataset object
+    """Returns an netCDF Dataset object or None if the file
+    does not exist..
 
     Returns
     -------
@@ -355,8 +361,9 @@ time_slider = Slider(start=0, end=1,
 time_slider.on_change('value', update_datasource)
 
 # Query Mysql and build a dict of information on each available station
-login_info = os.getenv('MYSQL_CRED', 'selectonly')
-mysql_login = mylogin.get_login_info(login_info)
+login_info_path = os.getenv('MYSQL_CRED', '~/.mysql')
+with open(os.path.expanduser(login_info_path), 'r') as f:
+    mysql_login = json.load(f)
 mysql_login['database'] = 'utility_data'
 conn = pymysql.connect(**mysql_login)
 
@@ -472,6 +479,7 @@ inputs = widgetbox(
     cbar_slider,
     wrf_init_date_input,
     wrf_init_time_select,
+    wrf_model_select,
     message_panel
     )
 layout = row(inputs, fig)
