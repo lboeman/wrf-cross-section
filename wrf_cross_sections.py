@@ -357,9 +357,7 @@ wrf_model_select.on_change('value', update_datasource)
 # Time Select widget
 time_slider = Slider(start=0, end=1,
                      value=0, step=1,
-                     title="timestep",
-                     callback_policy="throttle",
-                     callback_throttle=500)
+                     title="timestep")
 time_slider.on_change('value', update_datasource)
 
 # Query Mysql and build a dict of information on each available station
