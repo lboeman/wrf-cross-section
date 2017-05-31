@@ -13,8 +13,8 @@
         "port": 3306
       }
       ```
-    * WRF_DATA_DIRECTORY path to the directory to find WRF data in. Defaults to '/a4/uaren'.
-  * Serve cross sections with bokeh using 
+    * WRF_DATA_DIRECTORY: The path to the directory to find WRF data in. Defaults to '/a4/uaren'.
+  * Serve cross sections with bokeh using:
 ```
 bokeh serve wrf-cross-section --port PORT
 ```
