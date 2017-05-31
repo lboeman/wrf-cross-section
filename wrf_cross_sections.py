@@ -9,7 +9,7 @@ Required environment variables:
 MYSQL_CRED: A string to be passed to mylogin.get_login_info()
             defaults to "selectonly"
 WRF_DATA_DIRECTORY: the path to the directory in which the wrf
-            data can be found. 
+            data can be found.
 """
 import os
 import datetime
@@ -355,7 +355,7 @@ time_slider = Slider(start=0, end=1,
 time_slider.on_change('value', update_datasource)
 
 # Query Mysql and build a dict of information on each available station
-login_info = os.getenv('MYSQL_CRED','selectonly')
+login_info = os.getenv('MYSQL_CRED', 'selectonly')
 mysql_login = mylogin.get_login_info(login_info)
 mysql_login['database'] = 'utility_data'
 conn = pymysql.connect(**mysql_login)
