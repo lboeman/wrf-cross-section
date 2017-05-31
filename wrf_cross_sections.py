@@ -357,7 +357,9 @@ wrf_model_select.on_change('value', update_datasource)
 # Time Select widget
 time_slider = Slider(start=0, end=1,
                      value=0, step=1,
-                     title="timestep")
+                     title="timestep",
+                     callback_policy="throttle",
+                     callback_throttle=500)
 time_slider.on_change('value', update_datasource)
 
 # Query Mysql and build a dict of information on each available station
@@ -379,6 +381,9 @@ for line in cursor.fetchall():
     location_dict[line[0]] = {'lat': float(line[1]),
                               'lon': float(line[2]),
                               'elevation': float(line[3])}
+location_dict['Tucson - UA'] = {'lat': 32.2319,
+                                'lon': -110.9501,
+                                'elevation': 728}
 cursor.close()
 conn.close()
 wrf_data = open_wrf_file()
