@@ -7,10 +7,25 @@ parameters:
     displayName: Wrf cross section deploy key.
     description: SSH private key for pulling source code.
     required: true
+<<<<<<< f101a2c0dfda013c5e44151f106885d11e99a310
   - name: PATH
     displayName: Path to append to domain for app.
     required: true
     value: /wrf_cross_sections
+=======
+  - name: MYSQL_CREDS
+    displayName: Mysql credentials.
+    description: JSON object containing mysql credensials. See README for example.
+    required: true
+  - name: PATH
+    displayName: Path to append to domain for app.
+    required: true
+    value: /cross-sections
+  - name: WRF_DATA_DIRECTORY
+    displayName: Wrf data directory.
+    description: The directory to find wrf data in.
+    required: true
+>>>>>>> updating git repo for openshift pulls
   - name: REPO_TAG
     description: Tag or branch of repository to use.
     value: master
@@ -25,6 +40,7 @@ parameters:
     displayName: Image stream tag.
     required: true
     value: stable
+<<<<<<< f101a2c0dfda013c5e44151f106885d11e99a310
   - name: GITHUB_WEBHOOK_SECRET
     description: Secret string to configure the Github Webhook
     generate: expression
@@ -32,16 +48,21 @@ parameters:
   - name: HTPASSWD
     description: htpasswd file for nginx authentication.
     required: true
+=======
+>>>>>>> updating git repo for openshift pulls
 objects:
   - apiVersion: v1
     kind: Secret
     metadata:
+<<<<<<< f101a2c0dfda013c5e44151f106885d11e99a310
       name: cross-sections-auth
     stringData:
       .htpasswd: '{$HTPASSWD}'
   - apiVersion: v1
     kind: Secret
     metadata:
+=======
+>>>>>>> updating git repo for openshift pulls
       name: cross-sections-dk
     type: kubernetes.io/ssh-auth
     data:
@@ -79,13 +100,21 @@ objects:
       output:
         to:
           kind: ImageStreamTag
+<<<<<<< f101a2c0dfda013c5e44151f106885d11e99a310
           name: cross-sections-bokeh:latest
+=======
+          name: "cross-sections-bokeh:${TAG}"
+>>>>>>> updating git repo for openshift pulls
       postCommit: {}
       resources: {}
       source:
         git:
           ref: "${REPO_TAG}"
+<<<<<<< f101a2c0dfda013c5e44151f106885d11e99a310
           uri: git@github.com:UARENForecasting/wrf-cross-section.git
+=======
+          uri: git@github.com:lboeman/wrf-cross-section.git
+>>>>>>> updating git repo for openshift pulls
         sourceSecret:
           name: cross-sections-dk
         type: Git
@@ -118,7 +147,11 @@ objects:
       source:
         git:
           ref: "${REPO_TAG}"
+<<<<<<< f101a2c0dfda013c5e44151f106885d11e99a310
           uri: git@github.com:UARENForecasting/wrf-cross-section.git
+=======
+          uri: git@github.com:lboeman/wrf-cross-section.git
+>>>>>>> updating git repo for openshift pulls
         sourceSecret:
           name: cross-sections-dk
         type: Git
@@ -203,9 +236,13 @@ objects:
             env:
             - name: APP_SCRIPT
               value: ./run
+<<<<<<< f101a2c0dfda013c5e44151f106885d11e99a310
             - name: MYSQL_CREDS
               value: /auth/.mysql
             image: cross-sections-bokeh:${TAG}
+=======
+            image: "cross-sections-bokeh:${TAG}"
+>>>>>>> updating git repo for openshift pulls
             imagePullPolicy: Always
             ports:
             - containerPort: 5006
@@ -223,6 +260,7 @@ objects:
               timeoutSeconds: 30
               periodSeconds: 30
             terminationMessagePath: /dev/termination-log
+<<<<<<< f101a2c0dfda013c5e44151f106885d11e99a310
             volumeMounts:
             - mountPath: "/auth"
               name: "mysqlauth"
@@ -230,6 +268,10 @@ objects:
               name: "a4"
           - name: cross-sections-nginx
             image: cross-sections-nginx:${TAG}
+=======
+          - name: cross-sections-nginx
+            image: "cross-sections-nginx:${TAG}"
+>>>>>>> updating git repo for openshift pulls
             imagePullPolicy: Always
             env:
               - name: BASE_PATH
@@ -245,6 +287,7 @@ objects:
                 port: 8080
               initialDelaySeconds: 1
               timeoutSeconds: 5
+<<<<<<< f101a2c0dfda013c5e44151f106885d11e99a310
             volumeMounts:
             - mountPath: "/auth"
               name: "nginxauth"
@@ -281,3 +324,8 @@ objects:
           from:
             kind: ImageStreamTag
             name: "cross-sections-bokeh:${TAG}"
+=======
+          dnsPolicy: ClusterFirst
+          restartPolicy: Always
+          terminationGracePeriodSeconds: 30
+>>>>>>> updating git repo for openshift pulls
