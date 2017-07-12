@@ -1,0 +1,285 @@
+kind: "Template"
+metadata:
+  name: cross-sections-template
+apiVersion: "v1"
+parameters:
+  - name: DEPLOY_KEY
+    displayName: Wrf cross section deploy key.
+    description: SSH private key for pulling source code.
+    required: true
+  - name: PATH
+    displayName: Path to append to domain for app.
+    required: true
+    value: /wrf_cross_sections
+  - name: WRF_DATA_DIRECTORY
+    displayName: Wrf data directory.
+    description: The directory to find wrf data in.
+    required: true
+  - name: REPO_TAG
+    description: Tag or branch of repository to use.
+    value: master
+    required: true
+  - name: STAGE
+    displayName: Stage of Life (development, test, production).
+    required: true
+    value: production
+  - name: ROUTE
+    displayName: Domain route for app.
+  - name: TAG
+    displayName: Image stream tag.
+    required: true
+    value: stable
+  - name: GITHUB_WEBHOOK_SECRET
+    description: Secret string to configure the Github Webhook
+    generate: expression
+    from: "[a-zA-Z0-9]{20}"
+  - name: HTPASSWD
+    description: htpasswd file for nginx authentication.
+    required: true
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: cross-sections-auth
+    stringData:
+      .htpasswd: '{$HTPASSWD}'
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: cross-sections-dk
+    type: kubernetes.io/ssh-auth
+    data:
+      ssh-privatekey: "${{DEPLOY_KEY}}"
+  - apiVersion: v1
+    kind: ImageStream
+    metadata:
+      name: cross-sections-bokeh
+      annotations:
+        openshift.io/display-name: cross-sections-bokeh
+        openshift.io/descriptions: Wrf cross section bokeh application.
+      labels:
+        image: cross-sections
+        tier: frontend
+  - apiVersion: v1
+    kind: ImageStream
+    metadata:
+      name: cross-sections-nginx
+      annotations:
+        openshift.io/display-name: cross-sections-nginx
+        openshoft.io/descriptions: Wrf cross sections nginx server.
+      labels:
+        image: cross-sections
+        tier: webserver
+  - apiVersion: v1
+    kind: BuildConfig
+    metadata:
+      labels:
+        app: cross-sections
+        tier: frontend
+      name: cross-sections-bokeh
+    spec:
+      runPolicy: Serial
+      nodeSelector: null
+      output:
+        to:
+          kind: ImageStreamTag
+          name: cross-sections-bokeh:latest
+      postCommit: {}
+      resources: {}
+      source:
+        git:
+          ref: "${REPO_TAG}"
+          uri: git@github.com:UARENForecasting/wrf-cross-section.git
+        sourceSecret:
+          name: cross-sections-dk
+        type: Git
+      strategy:
+        sourceStrategy:
+          from:
+            kind: "ImageStreamTag"
+            name: "fxpython-s2i:latest"
+      triggers:
+      - github:
+          secret: "${GITHUB_WEBHOOK_SECRET}"
+        type: Github
+      - type: ConfigChange
+  - apiVersion: v1
+    kind: BuildConfig
+    metadata:
+      labels:
+        app: cross-sections
+        tier: webserver
+      name: cross-sections-nginx
+    spec:
+      nodeSelector: null
+      output:
+        to:
+          kind: ImageStreamTag
+          name: cross-sections-nginx:latest
+      postCommit: {}
+      resources: {}
+      runPolicy: Serial
+      source:
+        git:
+          ref: "${REPO_TAG}"
+          uri: git@github.com:UARENForecasting/wrf-cross-section.git
+        sourceSecret:
+          name: cross-sections-dk
+        type: Git
+      strategy:
+        sourceStrategy:
+          env:
+            - name: "NGINX_SERVER_CONF_FILE"
+              value: "./nginx.conf"
+          from:
+            kind: "ImageStreamTag"
+            name: "nginx-s2i:latest"
+      triggers:
+      - github:
+          secret: "${GITHUB_WEBHOOK_SECRET}"
+        type: Github
+      - type: ConfigChange
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      labels:
+        app: cross-sections
+        age: "${STAGE}"
+      name: "cross-sections-${STAGE}"
+    spec:
+      ports:
+      - name: 8080-tcp
+        port: 8080
+        protocol: TCP
+        targetPort: 8080
+      selector:
+        app: cross-sections
+        age: "${STAGE}"
+      sessionAffinity: None
+  - apiVersion: v1
+    kind: Route
+    metadata:
+      name: "cross-sections-${STAGE}"
+      labels:
+        app: cross-sections
+        age: "${STAGE}"
+    spec:
+      host: "${ROUTE}"
+      path: "${PATH}"
+      to:
+        kind: Service
+        name: "cross-sections-${STAGE}"
+      port:
+        targetPort: 8080-tcp
+      tls:
+        termination: edge
+        insecureEdgeTerminationPolicy: Redirect
+  - apiVersion: v1
+    kind: DeploymentConfig
+    metadata:
+      generation: 1
+      labels:
+        app: cross-sections
+        age: "${STAGE}"
+      name: "cross-sections-${STAGE}"
+    spec:
+      replicas: 1
+      selector:
+        app: cross-sections
+        age: "${STAGE}"
+      strategy:
+        resources: {}
+        rollingParams:
+          intervalSeconds: 1
+          maxSurge: 25%
+          maxUnavailable: 25%
+          timeoutSeconds: 600
+          updatePeriodSeconds: 1
+        type: Rolling
+      template:
+        metadata:
+          labels:
+            app: cross-sections
+            age: "${STAGE}"
+        spec:
+          containers:
+          - name: cross-sections-bokeh
+            env:
+            - name: APP_SCRIPT
+              value: ./run
+            - name: MYSQL_CREDS
+              value: /auth/.mysql
+            image: cross-sections-bokeh:${TAG}
+            imagePullPolicy: Always
+            ports:
+            - containerPort: 5006
+              protocol: TCP
+            resources: {}
+            livenessProbe:
+              tcpSocket:
+                port: 5006
+              initialDelaySeconds: 1
+              timeoutSeconds: 10
+            readinessProbe:
+              tcpSocket:
+                port: 5006
+              initialDelaySeconds: 1
+              timeoutSeconds: 30
+              periodSeconds: 30
+            terminationMessagePath: /dev/termination-log
+            volumeMounts:
+            - mountPath: "/auth"
+              name: "mysqlauth"
+            - mountPath: "/a4"
+              name: "a4"
+          - name: cross-sections-nginx
+            image: cross-sections-nginx:${TAG}
+            imagePullPolicy: Always
+            env:
+              - name: BASE_PATH
+                value: "${PATH}"
+              - name: BEFORE_NGINX
+                value: /opt/app-root/etc/aux/fix_nginx_config
+            ports:
+            - containerPort: 8080
+              protocol: TCP
+            resources: {}
+            livenessProbe:
+              tcpSocket:
+                port: 8080
+              initialDelaySeconds: 1
+              timeoutSeconds: 5
+            volumeMounts:
+            - mountPath: "/auth"
+              name: "nginxauth"
+          volumes:
+          - name: "mysqlauth"
+            secret:
+              defaultMode: 420
+              secretName: "mysql-selectonly-auth"
+          - name: "a4"
+            persistantVolumeClaim:
+              claimName: "a4"
+          - name: "nginxauth"
+            secretName: "cross-sections-auth"
+          dnsPolicy: ClusterFirst
+          restartPolicy: Always
+          terminationGracePeriodSeconds: 30
+      triggers:
+      - type: ConfigChange
+      - type: ImageChange
+        imageChangeParams:
+          automatic: true
+          containerNames:
+          - cross-sections-nginx
+          from:
+            kind: ImageStreamTag
+            name: "cross-sections-nginx:${TAG}"
+      - type: ImageChange
+        imageChangeParams:
+          automatic: true
+          containerNames:
+          - cross-sections-bokeh
+          from:
+            kind: ImageStreamTag
+            name: "cross-sections-bokeh:${TAG}"

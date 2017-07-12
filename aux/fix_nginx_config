@@ -1,0 +1,5 @@
+#! /bin/bash
+
+BASE_PATH=${BASE_PATH:-/}
+find /opt/app-root/etc/nginx.conf.d/ -type f -exec sed -i "s@<route>@$BASE_PATH@g" {} \;
+

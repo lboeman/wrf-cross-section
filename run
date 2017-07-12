@@ -1,0 +1,4 @@
+#! /usr/bin/env bash
+
+
+exec bokeh serve wrf_cross_sections --port 5006
