@@ -11,10 +11,6 @@ parameters:
     displayName: Path to append to domain for app.
     required: true
     value: /wrf_cross_sections
-  - name: WRF_DATA_DIRECTORY
-    displayName: Wrf data directory.
-    description: The directory to find wrf data in.
-    required: true
   - name: REPO_TAG
     description: Tag or branch of repository to use.
     value: master
