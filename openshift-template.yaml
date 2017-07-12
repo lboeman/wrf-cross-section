@@ -7,14 +7,10 @@ parameters:
     displayName: Wrf cross section deploy key.
     description: SSH private key for pulling source code.
     required: true
-  - name: MYSQL_CREDS
-    displayName: Mysql credentials.
-    description: JSON object containing mysql credensials. See README for example.
-    required: true
   - name: PATH
     displayName: Path to append to domain for app.
     required: true
-    value: /cross-sections
+    value: /wrf_cross_sections
   - name: WRF_DATA_DIRECTORY
     displayName: Wrf data directory.
     description: The directory to find wrf data in.
@@ -230,15 +226,12 @@ objects:
               initialDelaySeconds: 1
               timeoutSeconds: 30
               periodSeconds: 30
-           terminationMessagePath: /dev/termination-log
-	   volumeMounts:
-           - mountPath: "/auth"
-             name: "mysqlauth"
-           volumes:
-           - name: "mysqlauth"
-            secret:
-              defaultMode: 420
-              secretName: "mysql-selectonly-auth"
+            terminationMessagePath: /dev/termination-log
+            volumeMounts:
+            - mountPath: "/auth"
+              name: "mysqlauth"
+            - mountPath: "/a4"
+              name: "a4"
           - name: cross-sections-nginx
             image: cross-sections-nginx:${TAG}
             imagePullPolicy: Always
