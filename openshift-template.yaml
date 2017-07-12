@@ -230,12 +230,15 @@ objects:
               initialDelaySeconds: 1
               timeoutSeconds: 30
               periodSeconds: 30
-            terminationMessagePath: /dev/termination-log
-            volumeMounts:
-            - mountPath: "/auth"
-              name: "mysqlauth"
-            - mountPath: "/a4"
-              name: "a4"
+           terminationMessagePath: /dev/termination-log
+	   volumeMounts:
+           - mountPath: "/auth"
+             name: "mysqlauth"
+           volumes:
+           - name: "mysqlauth"
+            secret:
+              defaultMode: 420
+              secretName: "mysql-selectonly-auth"
           - name: cross-sections-nginx
             image: cross-sections-nginx:${TAG}
             imagePullPolicy: Always
