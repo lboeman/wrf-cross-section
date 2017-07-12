@@ -1,7 +1,3 @@
 #! /usr/bin/env bash
 
-<<<<<<< f101a2c0dfda013c5e44151f106885d11e99a310
-
-=======
->>>>>>> updating git repo for openshift pulls
 exec bokeh serve wrf_cross_sections --port 5006
