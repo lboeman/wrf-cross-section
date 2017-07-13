@@ -1,46 +1,91 @@
-from math import pi
+"""wrf_cross_sections.py
+
+A script which sets up a bokeh figure and interactions for wrf
+windspeed cross sections.
+
+Notes
+-----
+Required environment variables:
+MYSQL_CRED: The path to a file containing Mysql login credentials
+    in the form of a json object with attributes user, passwd, host
+    and port. Defaults to ~/.mysql
+WRF_DATA_DIRECTORY: the path to the directory in which the wrf
+            data can be found. Defaults to /a4/uaren.
+"""
+import datetime
 from datetime import timedelta
+import json
+from math import pi
+import os
+
 from bokeh.plotting import (figure, curdoc)
 from bokeh.palettes import Viridis256
-#  from dateutil.parser import parse
 from bokeh.models import (
     ColumnDataSource,
     HoverTool,
+    TextInput,
     LinearColorMapper,
     BasicTicker,
     PrintfTickFormatter,
     ColorBar,
     Slider,
     Select,
-    RadioGroup
+    RadioGroup,
+    Div,
 )
-from bokeh.layouts import row, widgetbox
-from serverscripts.utils import (
-    handle_exception,
-    basic_logging_config,
-)
+from bokeh.layouts import row, column, widgetbox
+from dateutil import parser
 from netCDF4 import Dataset
-from metpy.calc import pressure_to_height_std
-from metpy.units import units
-from numpy import cos, sin
-
-import sys
-import logging
-import datetime
 import numpy as np
+from numpy import cos, sin
 import pandas as pd
-import mysql.connector
-import mylogin
+import pymysql
+
 
 # the directory in which to find the data files
-DATA_DIR = "/a4"
+DATA_DIR = os.getenv('WRF_DATA_DIRECTORY', '/a4/uaren')
 
 # The spread over which to create the cross section in wrf grid points
 # ~1.8km each
 SPREAD = 10
 
-sys.excepthook = handle_exception
-basic_logging_config()
+
+def check_date(attr, old, new):
+    """Makes sure an appropriately formatted date is input
+    """
+    try:
+        parser.parse(wrf_init_date_input.value)
+    except:
+        display_message('Unrecognized date format, please use\
+                         "yyyy/mm/dd".', 'error')
+        return None
+    update_datasource(attr, old, new)
+
+
+def selected_date():
+    """builds a datetime object from the current widget
+    selections.
+    """
+    day = parser.parse(wrf_init_date_input.value)
+    hour = wrf_init_time_select.value
+    hour = timedelta(hours=int(hour[:-1]))
+    return day+hour
+
+
+def pressure_to_height(pressure):
+    """Converts pressure in Pa to height.
+    Notes
+    -----
+    Adapted from metpy.calc.pressure_to_height_std, removed unit
+    checking and hardcoded variables to reduce dependencies.
+    MetPy sourcode: https://github.com/Unidata/MetPy
+    """
+    t0 = 288
+    gamma = 6.5
+    p0 = 101325
+    g = 9.806650
+    rd = .2870579780696303  # Rd = 8.3144621/28.9644
+    return (t0 / gamma) * (1 - (pressure / p0)**(rd * gamma / g))
 
 
 def tunnel_dist(lat_ar, lon_ar, lat, lon):
@@ -78,46 +123,42 @@ def tunnel_dist(lat_ar, lon_ar, lat, lon):
     return [y, x]
 
 
-def get_weather_file(time, model):
+def get_weather_file():
     """
     Returns the location of current weather data as a string, None
     if the file does not exist.
-
-    Parameters
-    ----------
-    time: datetime object
-         The desired time for the model run.
-    model: string
-         The model to search for i.e. 'GFS'.
 
     Returns
     -------
     string
        The path to the desired wrf data file or None.
     """
-    location = '%s/uaren/%s/WRF%s_%sZ/wrfsolar_d02_hourly.nc'
-    location = location % (DATA_DIR, time.strftime("%Y/%m/%d"),
-                           model, time.strftime("%H"))
+    wrf_date = selected_date()
+    file_date = os.path.join(wrf_date.strftime('%Y'),
+                             wrf_date.strftime('%m'),
+                             wrf_date.strftime('%d'))
+    file_time = wrf_init_time_select.value
+    file_model = wrf_model_select.value
+    dir_name = f'WRF{file_model}_{file_time}'
+    location = os.path.join(DATA_DIR, file_date,
+                            dir_name, 'wrfsolar_d02_hourly.nc')
     return location
 
 
-def open_wrf_file(filename):
-    """Returns an netCDF Dataset object
+def open_wrf_file():
+    """Returns an netCDF Dataset object or None if the file
+    does not exist..
 
-    Parameters
-    ----------
-    filename: string
-        The path to the wrf file to open
     Returns
     -------
     wrf_file: netCDF4 Dataset
         The opened wrf file.
     """
     try:
-        wrf_file = Dataset(filename)
+        wrf_file = Dataset(get_weather_file())
     except:
-        logging.exception("WRF file does not exist.")
-        sys.exit(1)
+        display_message("WRF file does not exist.", 'error')
+        return None
     return wrf_file
 
 
@@ -144,14 +185,15 @@ def update_title(time_index, orientation):
         Formatted title for the figure based on the
         currently selected widget values and args.
     """
-    time_format = '%y/%m/%d %H:%M:%SZ'
+    wrf_init_time = selected_date()
+    time_format = '%Y-%m-%d %H:%M:%SZ'
     station_name = station_select.value
-    plot_title = ('%s (%s) Initialized: %s   Valid: %s' % (
+    plot_title = '{} ({}) Initialized: {}   Valid: {}'.format(
                   station_name,
                   orientation,
                   wrf_init_time.strftime(time_format),
                   (wrf_init_time +
-                   timedelta(hours=time_index)).strftime(time_format)))
+                   timedelta(hours=time_index)).strftime(time_format))
     return plot_title
 
 
@@ -171,9 +213,19 @@ def build_dataframe(time_index, station, orientation):
         "South-North" or "West-East"
     """
     station_data = location_dict[station]
-    wrf_data = open_wrf_file(wrf_filename)
+    wrf_data = open_wrf_file()
+    if wrf_data is None:
+        return
     new_source = pd.DataFrame()
-
+    lats = wrf_data['XLAT']
+    lons = wrf_data['XLONG']
+    # If we're opening a file with a shorter time scale,
+    # and we're out of bounds, bring the index back in.
+    time_index_max = wrf_data['P'].shape[0]-1
+    if time_index > time_index_max:
+        time_index = time_index_max
+        time_slider.value = time_index_max
+    time_slider.end = time_index_max
     if orientation == 'South-North':
         y_range = station_data['vertical_range']
         x_range = station_data['origin'][1]
@@ -190,14 +242,14 @@ def build_dataframe(time_index, station, orientation):
                    (lats[station_data['origin'][0], x],
                     lons[station_data['origin'][0], x])
                    for x in x_range]
+
     pressure = (wrf_data['PB'][time_index, :, y_range, x_range] +
                 wrf_data['P'][time_index, :, y_range, x_range])
-
     wspd_x_component = wrf_data['U'][time_index, :, y_range, x_range]
 
     wspd_y_component = wrf_data['V'][time_index, :, y_range, x_range]
 
-    height = pressure_to_height_std(pressure * units.pascal)
+    height = pressure_to_height(pressure)
     height = np.array(height)
     height = height * 1000  # convert km to m
 
@@ -225,6 +277,7 @@ def build_dataframe(time_index, station, orientation):
 def update_figure(time, orientation, new_x_range):
     """Updates figure's text labels.
     """
+    display_message()
     fig.title.text = update_title(time, orientation)
     fig.x_range.factors = new_x_range
     station_pos.data_source.data.update(get_station_data())
@@ -234,12 +287,13 @@ def update_datasource(attr, old, new):
     """Build a new dataframe with the values of each widget.
     """
     orientation = orientation_select.labels[orientation_select.active]
-    new_data = build_dataframe(
+    new_data, new_x_range = build_dataframe(
             time_slider.value,
             station_select.value,
             orientation)
-    rects_source.data.update(new_data[0])
-    new_x_range = new_data[1]
+    if new_data is None:
+        return  # Something happened.
+    source.data.update(new_data)
     update_figure(time_slider.value, orientation, new_x_range)
 
 
@@ -250,25 +304,72 @@ def get_station_data():
     location = location_dict[station_select.value]
     x_range = fig.x_range.factors
     station_info_dict = {
-        'x_index': [x_range[SPREAD]],
-        'elevation': [location['elevation']],
+        'latlons': [x_range[SPREAD]],
+        'altitude': [location['elevation']],
         'label': [station_select.value],
     }
     return station_info_dict
 
 
-# set Defaults for init time and model, then retrieve filename
-wrf_init_time = datetime.datetime.now().replace(hour=6, minute=0, second=0)
-wrf_model = "GFS"
-wrf_filename = get_weather_file(wrf_init_time, wrf_model)
+def display_message(msg="", msg_type=None):
+    """Displays message to the user. Call with no arguments
+    to clear the message box.
+
+    Parameters
+    ----------
+    msg: str
+        The message to display.
+    msg_type: str
+        Really, just pass in "error" if you want the text to
+        red.
+    """
+    if msg_type == "error":
+        message_panel.text = f'<p style="color:#F00">{msg}</p>'
+    else:
+        message_panel.text = f'<p>{msg}</p>'
+
+
+# Declare Bokeh Widgets
+
+# Panel for displaying messages to users
+message_panel = Div()
+
+# Initialization time selector
+init_options = ['00Z', '06Z', '12Z', '18Z']
+wrf_init_time_select = Select(title="Initialized Time",
+                              value=init_options[1],
+                              options=init_options)
+wrf_init_time_select.on_change('value', update_datasource)
+
+# Initialization date selector
+initial_date = datetime.date.today().strftime("%Y/%m/%d")
+wrf_init_date_input = TextInput(title="Initialized Date",
+                                value=initial_date)
+wrf_init_date_input.on_change('value', check_date)
+
+# Model select widget
+wrf_model_options = ['GFS', 'NAM']
+wrf_model_select = Select(title="Model",
+                          value=wrf_model_options[0],
+                          options=wrf_model_options)
+wrf_model_select.on_change('value', update_datasource)
+
+# Time Select widget
+time_slider = Slider(start=0, end=1,
+                     value=0, step=1,
+                     title="Timestep")
+time_slider.on_change('value', update_datasource)
 
 # Query Mysql and build a dict of information on each available station
-mysql_login = mylogin.get_login_info("selectonly")
+login_info_path = os.getenv('MYSQL_CRED', '~/.mysql')
+with open(os.path.expanduser(login_info_path), 'r') as f:
+    mysql_login = json.load(f)
 mysql_login['database'] = 'utility_data'
-cnx = mysql.connector.connect(**mysql_login)
+conn = pymysql.connect(**mysql_login)
+
 query = 'SELECT name,lat,lon,elevation FROM \
         measurementDescriptions WHERE type = "Wind"'
-cursor = cnx.cursor()
+cursor = conn.cursor()
 cursor.execute(query)
 
 location_dict = {}
@@ -278,9 +379,12 @@ for line in cursor.fetchall():
     location_dict[line[0]] = {'lat': float(line[1]),
                               'lon': float(line[2]),
                               'elevation': float(line[3])}
+location_dict['Tucson - UA'] = {'lat': 32.2319,
+                                'lon': -110.9501,
+                                'elevation': 728}
 cursor.close()
-
-wrf_data = open_wrf_file(wrf_filename)
+conn.close()
+wrf_data = open_wrf_file()
 lats = wrf_data['XLAT']
 lons = wrf_data['XLONG']
 wrf_time_length = wrf_data['P'].shape[0]
@@ -294,17 +398,10 @@ for station in location_dict.values():
     station["horizontal_range"] = range(station['origin'][1]-SPREAD,
                                         station['origin'][1]+SPREAD)
 wrf_data.close()
-
-# Define bokeh widgets
-# Time Select widget
-slider_end = wrf_time_length-1
-time_slider = Slider(start=0, end=slider_end,
-                     value=0, step=1,
-                     title="timestep")
-time_slider.on_change('value', update_datasource)
+# Define widgets that are dependent on initial data.
 
 # Station Select Widget
-station_select_options = location_dict.keys()
+station_select_options = list(location_dict.keys())
 station_select = Select(title="Station:",
                         value=station_select_options[0],
                         options=station_select_options)
@@ -322,19 +419,17 @@ cbar_slider = Slider(start=10, end=100,
                      title="Colorbar Max")
 cbar_slider.on_change('value', colorbar_change)
 
-
 # Define initial data and figure attributes
 mapper = LinearColorMapper(palette=Viridis256, low=0, high=40)
-tools = "pan,wheel_zoom,reset,hover,save"
-initial_data = build_dataframe(
+tools = "pan,wheel_zoom,box_zoom,reset,hover,save"
+initial_source, initial_x_range = build_dataframe(
     time_slider.value,
     station_select.value,
     "South-North"
     )
-initial_source = initial_data[0]
-initial_x_range = initial_data[1]
+
 source = ColumnDataSource(initial_source)
-figure_title = update_title(0, "North-South")
+figure_title = update_title(0, "South-North")
 bokeh_formatter = PrintfTickFormatter(format="%d m/s")
 color_bar = ColorBar(
      color_mapper=mapper,
@@ -370,23 +465,30 @@ rects = fig.rect(x='latlons', y='altitude',
                  source=source,
                  line_color=None)
 
-rects_source = rects.data_source
 
 # Plot the position  of the station as a red x
 station_init = ColumnDataSource(get_station_data())
 station_pos = fig.cross(
-    x='x_index',
-    y='elevation',
+    x='latlons',
+    y='altitude',
     source=station_init,
     size=10, color="#FF0000", legend='label')
 
 # add the widgets to a box and layout with fig
-inputs = widgetbox(
+inputs_left = widgetbox(
     station_select,
     orientation_select,
     time_slider,
-    cbar_slider,
-    )
-layout = row(inputs, fig)
+    cbar_slider)
 
-curdoc().add_root(layout)
+inputs_right = widgetbox(
+    wrf_init_date_input,
+    wrf_init_time_select,
+    wrf_model_select,
+    message_panel
+    )
+widgets = row(inputs_left, inputs_right)
+figure = row(fig, sizing_mode='scale_height', responsive=True)
+container = column(widgets, figure, responsive=True)
+curdoc().title = "Wind Cross Sections"
+curdoc().add_root(container)
