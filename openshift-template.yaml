@@ -257,7 +257,9 @@ objects:
             persistantVolumeClaim:
               claimName: "a4"
           - name: "nginxauth"
-            secretName: "cross-sections-auth"
+            secret:
+              defaultMode: 420
+              secretName: "cross-sections-auth"
           dnsPolicy: ClusterFirst
           restartPolicy: Always
           terminationGracePeriodSeconds: 30
