@@ -83,7 +83,7 @@ objects:
       output:
         to:
           kind: ImageStreamTag
-          name: "cross-sections-bokeh:${TAG}"
+          name: cross-sections-bokeh:latest
       postCommit: {}
       resources: {}
       source:
