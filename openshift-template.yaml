@@ -99,9 +99,9 @@ objects:
             kind: "ImageStreamTag"
             name: "fxpython-s2i:latest"
       triggers:
-      - github:
+      - type: "GitHub"
+        github:
           secret: "${GITHUB_WEBHOOK_SECRET}"
-        type: Github
       - type: ConfigChange
   - apiVersion: v1
     kind: BuildConfig
@@ -135,9 +135,9 @@ objects:
             kind: "ImageStreamTag"
             name: "nginx-s2i:latest"
       triggers:
-      - github:
+      - type: "GitHub"
+        github:
           secret: "${GITHUB_WEBHOOK_SECRET}"
-        type: Github
       - type: ConfigChange
   - apiVersion: v1
     kind: Service

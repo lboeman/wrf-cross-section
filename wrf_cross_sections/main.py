@@ -6,7 +6,7 @@ windspeed cross sections.
 Notes
 -----
 Required environment variables:
-MYSQL_CRED: The path to a file containing Mysql login credentials
+MYSQL_CREDS: The path to a file containing Mysql login credentials
     in the form of a json object with attributes user, passwd, host
     and port. Defaults to ~/.mysql
 WRF_DATA_DIRECTORY: the path to the directory in which the wrf
@@ -361,7 +361,7 @@ time_slider = Slider(start=0, end=1,
 time_slider.on_change('value', update_datasource)
 
 # Query Mysql and build a dict of information on each available station
-login_info_path = os.getenv('MYSQL_CRED', '~/.mysql')
+login_info_path = os.getenv('MYSQL_CREDS', '~/.mysql')
 with open(os.path.expanduser(login_info_path), 'r') as f:
     mysql_login = json.load(f)
 mysql_login['database'] = 'utility_data'
