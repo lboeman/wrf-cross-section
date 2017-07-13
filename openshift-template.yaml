@@ -254,7 +254,7 @@ objects:
               defaultMode: 420
               secretName: "mysql-selectonly-auth"
           - name: "a4"
-            persistantVolumeClaim:
+            persistentVolumeClaim:
               claimName: "a4"
           - name: "nginxauth"
             secret:
