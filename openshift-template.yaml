@@ -10,8 +10,8 @@ parameters:
   - name: PATH
     displayName: Path to append to domain for app.
     required: true
-    value: /wrf_cross_sections
-  - name: WRF_DATA_DIRECTORY
+    value: /cross-sections
+  - name: WRF_DATA_DIR
     displayName: Wrf data directory.
     description: The directory to find wrf data in.
     required: true
@@ -209,6 +209,8 @@ objects:
               value: ./run
             - name: MYSQL_CREDS
               value: /auth/.mysql
+            - name: WRF_DATA_DIRECTORY
+              value: "${WRF_DATA_DIR}"
             image: cross-sections-bokeh:${TAG}
             imagePullPolicy: Always
             ports:
