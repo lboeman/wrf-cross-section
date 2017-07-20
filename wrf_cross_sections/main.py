@@ -12,8 +12,7 @@ MYSQL_CREDS: The path to a file containing Mysql login credentials
 WRF_DATA_DIRECTORY: the path to the directory in which the wrf
             data can be found. Defaults to /a4/uaren.
 """
-import datetime
-from datetime import timedelta
+from datetime import timedelta, datetime, date
 import json
 from math import pi
 import os
@@ -188,12 +187,16 @@ def update_title(time_index, orientation):
     wrf_init_time = selected_date()
     time_format = '%Y-%m-%d %H:%M:%SZ'
     station_name = station_select.value
+    wrf_data = open_wrf_file()
+    curr_byte_time = wrf_data["Times"][time_index].tostring()
+    wrf_data.close()
+    curr_time = datetime.strptime(curr_byte_time.decode('utf-8'),
+                                  "%Y-%m-%d_%H:%M:%S")
     plot_title = '{} ({}) Initialized: {}   Valid: {}'.format(
                   station_name,
                   orientation,
                   wrf_init_time.strftime(time_format),
-                  (wrf_init_time +
-                   timedelta(hours=time_index)).strftime(time_format))
+                  curr_time.strftime(time_format))
     return plot_title
 
 
@@ -329,28 +332,59 @@ def display_message(msg="", msg_type=None):
         message_panel.text = f'<p>{msg}</p>'
 
 
+def find_initial():
+    """"Looks for an existing file to initialize the plots from.
+    """
+    initial_model = None
+    initial_date = date.today()
+    initial_time = None
+    days_to_try = 10
+    while initial_model is None:
+        dir_date = os.path.join(initial_date.strftime('%Y'),
+                                initial_date.strftime('%m'),
+                                initial_date.strftime('%d'))
+        location = os.path.join(DATA_DIR, dir_date)
+        files = os.listdir(location)
+        if files is not None:
+            for f in files:
+                if f[:3] == "WRF":
+                    initial_model = f[3:6]
+                    if initial_model not in ["NAM", "GFS"]:
+                        continue
+                    initial_time = f[-3:]
+                    initial_date = initial_date.strftime("%Y/%m/%d")
+                return initial_time, initial_date, initial_model
+        days_to_try -= 1
+        initial_date = initial_date-timedelta(days=1)
+        if days_to_try <= 0:
+            raise Exception("Could not locate forecast newer than 10 days")
+
+
 # Declare Bokeh Widgets
 
 # Panel for displaying messages to users
 message_panel = Div()
 
+# Get an existing file for default values
+init_time, init_date, init_model = find_initial()
+
 # Initialization time selector
 init_options = ['00Z', '06Z', '12Z', '18Z']
 wrf_init_time_select = Select(title="Initialized Time",
-                              value=init_options[1],
+                              value=init_time,
                               options=init_options)
 wrf_init_time_select.on_change('value', update_datasource)
 
 # Initialization date selector
-initial_date = datetime.date.today().strftime("%Y/%m/%d")
+initial_date = date.today().strftime("%Y/%m/%d")
 wrf_init_date_input = TextInput(title="Initialized Date",
-                                value=initial_date)
+                                value=init_date)
 wrf_init_date_input.on_change('value', check_date)
 
 # Model select widget
 wrf_model_options = ['GFS', 'NAM']
 wrf_model_select = Select(title="Model",
-                          value=wrf_model_options[0],
+                          value=init_model,
                           options=wrf_model_options)
 wrf_model_select.on_change('value', update_datasource)
 
