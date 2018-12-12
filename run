@@ -1,3 +1,3 @@
 #! /usr/bin/env bash
 
-exec bokeh serve wrf_cross_sections --port 5006 --allow-websocket-origin=forecasting.energy.arizona.edu
+exec bokeh serve wrf_cross_sections --port 5006 --allow-websocket-origin=localhost:5006

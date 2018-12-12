@@ -1,20 +1,17 @@
-# wrf-cross-section
+# WRF Cross Sections
+
+Bokeh app for visualizing a cross section of University of Arizona WRF run output. Allows visualization of the following variables:
+- Wind Speed
+- Water vapor mixing ratio
+- Water vapor transport
 
 ## Usage
   * Environment Variables:
-    * MYSQL_CRED: The path to a file containing mysql login credentials in json format. Defaults to '~/.mysql'.
+    * WRF_DATA_DIRECTORY: The path to the directory to find WRF data in. The directory must contain the following structure:
 
-      example:
-      ```
-      {
-        "user": "user",
-        "passwd": "password",
-        "host": "127.0.0.1",
-        "port": 3306
-      }
-      ```
-    * WRF_DATA_DIRECTORY: The path to the directory to find WRF data in. Defaults to '/a4/uaren'.
-  * Serve cross sections with bokeh using:
+		`<year>/<month>/<day>/WRF<model>_<initialization time>/wrf_d02_hourly.nc`
+		
+  * Serve cross sections with bokeh using a command like:
 ```
-bokeh serve wrf_cross_sections --port PORT
+WRF_DATA_DIRECTORY=<path to wrf files> bokeh serve wrf_cross_sections --port PORT
 ```

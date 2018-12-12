@@ -6,16 +6,15 @@ windspeed cross sections.
 Notes
 -----
 Required environment variables:
-MYSQL_CREDS: The path to a file containing Mysql login credentials
-    in the form of a json object with attributes user, passwd, host
-    and port. Defaults to ~/.mysql
-WRF_DATA_DIRECTORY: the path to the directory in which the wrf
-            data can be found. Defaults to /a4/uaren.
+WRF_DATA_DIRECTORY: The path to the directory in which the wrf
+    data can be found. Assumes the directory has the following
+    structure:
+        {year}/{month}/{day}/WRF{model}_{init_time}/wrf_d02_hourly.nc
 """
 from datetime import timedelta, datetime, date
-import json
 from math import pi
 import os
+import sys
 
 from bokeh.plotting import (figure, curdoc)
 from bokeh.palettes import Viridis256
@@ -33,23 +32,25 @@ from bokeh.models import (
     Div,
 )
 from bokeh.layouts import row, column, widgetbox
+import colorcet as cc
 from dateutil import parser
 from netCDF4 import Dataset
 import numpy as np
 from numpy import cos, sin
 import pandas as pd
-import pymysql
 
 
-# the directory in which to find the data files
-DATA_DIR = os.getenv('WRF_DATA_DIRECTORY', '/a4/uaren')
+# The directory in which to find the data files
+DATA_DIR = os.getenv('WRF_DATA_DIRECTORY')
+if DATA_DIR is None:
+    sys.exit('WRF_DATA_DIRECTORY env variable not set.')
 
 # The spread over which to create the cross section in wrf grid points
 # ~1.8km each
 SPREAD = 10
 
 
-def check_date(attr, old, new):
+def validate_date(attr, old, new):
     """Makes sure an appropriately formatted date is input
     """
     try:
@@ -166,6 +167,10 @@ def colorbar_change(attr, old, new):
     the colorbar to the slider value
     """
     mapper.high = cbar_slider.value
+    if variable_select.value == 'Water Vapor Transport':
+        mapper.low = -cbar_slider.value
+    else:
+        mapper.low = 0
 
 
 def update_title(time_index, orientation):
@@ -187,22 +192,61 @@ def update_title(time_index, orientation):
     wrf_init_time = selected_date()
     time_format = '%Y-%m-%d %H:%M:%SZ'
     station_name = station_select.value
+    variable = variable_select.value
     wrf_data = open_wrf_file()
     curr_byte_time = wrf_data["Times"][time_index].tostring()
     wrf_data.close()
     curr_time = datetime.strptime(curr_byte_time.decode('utf-8'),
                                   "%Y-%m-%d_%H:%M:%S")
-    plot_title = '{} ({}) Initialized: {}   Valid: {}'.format(
+    plot_title = '{} {} ({}) Initialized: {}   Valid: {}'.format(
                   station_name,
+                  variable,
                   orientation,
                   wrf_init_time.strftime(time_format),
                   curr_time.strftime(time_format))
     return plot_title
 
 
+def wspd_colorbar():
+    """Sets the color mapper for wind speed
+    """
+    cbar_slider.value = 40
+    mapper.palette = Viridis256
+    bokeh_formatter.format = "%d m/s"
+
+
+def qvapor_colorbar():
+    """Sets the color mapper for water vapor mixing vapor
+    """
+    cbar_slider.value = 10
+    mapper.palette = Viridis256
+    bokeh_formatter.format = "%f g/g"
+
+
+def vt_colorbar():
+    """Sets the color mapper settings for water vapor transfer
+    """
+    cbar_slider.value = 25
+    mapper.palette = cc.coolwarm
+    bokeh_formatter.format = "%f m/s"
+
+
+def update_variable(attr, old, new):
+    """Variable Select callback. Determines how to update the plot
+    """
+    if new == 'Wind Speed':
+        wspd_colorbar()
+    elif new == 'Water Vapor Mixing Ratio':
+        qvapor_colorbar()
+    elif new == 'Water Vapor Transport':
+        vt_colorbar()
+    update_datasource(attr, old, new)
+
+
 def build_dataframe(time_index, station, orientation):
     """Gathers the required variables for plotting from
-    the WRF file and organizes them into a dataframe.
+    the WRF file and organizes them into a dataframe to
+    be plotted by bokeh.
 
     Parameters
     ----------
@@ -245,33 +289,51 @@ def build_dataframe(time_index, station, orientation):
                    (lats[station_data['origin'][0], x],
                     lons[station_data['origin'][0], x])
                    for x in x_range]
-
+    # Calculate pressure from base state and perturbation pressure
     pressure = (wrf_data['PB'][time_index, :, y_range, x_range] +
                 wrf_data['P'][time_index, :, y_range, x_range])
-    wspd_x_component = wrf_data['U'][time_index, :, y_range, x_range]
 
-    wspd_y_component = wrf_data['V'][time_index, :, y_range, x_range]
+    # Convert pressure to altitude
+    altitude = pressure_to_height(pressure)
+    altitude = np.array(altitude)
+    altitude = altitude * 1000  # convert km to m
 
-    height = pressure_to_height(pressure)
-    height = np.array(height)
-    height = height * 1000  # convert km to m
-
-    wspd = np.sqrt(wspd_x_component**2 +
-                   wspd_y_component**2)
-
-    # calculate the height at each index
-    heights = np.diff(height, axis=0)
+    # Calculate the height of each data point
+    heights = np.diff(altitude, axis=0)
 
     # Append heights for last index, this just reuses
     # the second to last value
     last_value = np.reshape(heights[-1, :], (1, SPREAD*2))
     heights = np.vstack((heights, last_value))
 
+    selected_variable = variable_select.value
+    if selected_variable == 'Wind Speed':
+        wspd_x_component = wrf_data['U'][time_index, :, y_range, x_range]
+
+        wspd_y_component = wrf_data['V'][time_index, :, y_range, x_range]
+
+        variable = np.sqrt(wspd_x_component**2 +
+                           wspd_y_component**2)
+    elif selected_variable == 'Water Vapor Mixing Ratio':
+        # kg/kg to g/g
+        mixing_ratio = wrf_data['QVAPOR'][time_index, :, y_range, x_range]
+        mixing_ratio_grams = mixing_ratio * 1000
+        variable = mixing_ratio_grams
+    elif selected_variable == 'Water Vapor Transport':
+        # kg/kg to g/g
+        mixing_ratio = wrf_data['QVAPOR'][time_index, :, y_range, x_range]
+        mixing_ratio_grams = mixing_ratio * 1000
+        if orientation == 'South-North':
+            wspd_component = wrf_data['U'][time_index, :, y_range, x_range]
+        else:
+            wspd_component = wrf_data['V'][time_index, :, y_range, x_range]
+        variable = mixing_ratio_grams * wspd_component
+
     # build the source dataframe
-    y_values = height+(heights/2)
+    y_values = altitude+(heights/2)  # center the y values of each point
     new_source['altitude'] = y_values.ravel()
     new_source['height'] = heights.ravel()
-    new_source['wspd'] = wspd.ravel()
+    new_source['value'] = variable.ravel()
     new_source['latlons'] = latlons * wrf_data['P'].shape[1]
     wrf_data.close()
     return new_source, latlons
@@ -287,7 +349,8 @@ def update_figure(time, orientation, new_x_range):
 
 
 def update_datasource(attr, old, new):
-    """Build a new dataframe with the values of each widget.
+    """Create a new datasource by selecting data from the WRF file using
+    bokeh widgets as parameters.
     """
     orientation = orientation_select.labels[orientation_select.active]
     new_data, new_x_range = build_dataframe(
@@ -336,7 +399,7 @@ def find_initial():
     """"Looks for an existing file to initialize the plots from.
     """
     initial_model = None
-    initial_date = date.today()
+    initial_date = parser.parse('2018/12/07')  # hard coded to demo file
     initial_time = None
     days_to_try = 10
     while initial_model is None:
@@ -359,8 +422,8 @@ def find_initial():
         if days_to_try <= 0:
             raise Exception("Could not locate forecast newer than 10 days")
 
+# BOKEH WIDGETS
 
-# Declare Bokeh Widgets
 
 # Panel for displaying messages to users
 message_panel = Div()
@@ -379,7 +442,7 @@ wrf_init_time_select.on_change('value', update_datasource)
 initial_date = date.today().strftime("%Y/%m/%d")
 wrf_init_date_input = TextInput(title="Initialized Date",
                                 value=init_date)
-wrf_init_date_input.on_change('value', check_date)
+wrf_init_date_input.on_change('value', validate_date)
 
 # Model select widget
 wrf_model_options = ['GFS', 'NAM']
@@ -394,30 +457,18 @@ time_slider = Slider(start=0, end=1,
                      title="Timestep")
 time_slider.on_change('value', update_datasource)
 
-# Query Mysql and build a dict of information on each available station
-login_info_path = os.getenv('MYSQL_CREDS', '~/.mysql')
-with open(os.path.expanduser(login_info_path), 'r') as f:
-    mysql_login = json.load(f)
-mysql_login['database'] = 'utility_data'
-conn = pymysql.connect(**mysql_login)
 
-query = 'SELECT name,lat,lon,elevation FROM \
-        measurementDescriptions WHERE type = "Wind"'
-cursor = conn.cursor()
-cursor.execute(query)
-
+# Location Data
 location_dict = {}
-for line in cursor.fetchall():
-    if line[0] == 'Total Wind':
-        continue
-    location_dict[line[0]] = {'lat': float(line[1]),
-                              'lon': float(line[2]),
-                              'elevation': float(line[3])}
 location_dict['Tucson - UA'] = {'lat': 32.2319,
                                 'lon': -110.9501,
                                 'elevation': 728}
-cursor.close()
-conn.close()
+location_dict['Chiricahua Gap'] = {'lat': 31.9,
+                                   'lon': -108.5,
+                                   'elevation': 1666}
+location_dict['San Pedro River - US/Mexico Border'] = {'lat': 31.334,
+                                                       'lon': -110.148,
+                                                       'elevation': 1310}
 wrf_data = open_wrf_file()
 lats = wrf_data['XLAT']
 lons = wrf_data['XLONG']
@@ -432,11 +483,22 @@ for station in location_dict.values():
     station["horizontal_range"] = range(station['origin'][1]-SPREAD,
                                         station['origin'][1]+SPREAD)
 wrf_data.close()
+
 # Define widgets that are dependent on initial data.
+
+# Variable select widget
+variable_select_options = ['Wind Speed',
+                           'Water Vapor Mixing Ratio',
+                           'Water Vapor Transport']
+variable_select = Select(
+    title='Variable:',
+    value=variable_select_options[0],
+    options=variable_select_options)
+variable_select.on_change('value', update_variable)
 
 # Station Select Widget
 station_select_options = list(location_dict.keys())
-station_select = Select(title="Station:",
+station_select = Select(title="Location:",
                         value=station_select_options[0],
                         options=station_select_options)
 station_select.on_change('value', update_datasource)
@@ -448,10 +510,11 @@ orientation_select = RadioGroup(
 orientation_select.on_change('active', update_datasource)
 
 # Colorbar Widget
-cbar_slider = Slider(start=10, end=100,
-                     value=40, step=10,
+cbar_slider = Slider(start=0, end=100,
+                     value=40, step=1,
                      title="Colorbar Max")
 cbar_slider.on_change('value', colorbar_change)
+bokeh_formatter = PrintfTickFormatter(format="%d m/s")
 
 # Define initial data and figure attributes
 mapper = LinearColorMapper(palette=Viridis256, low=0, high=40)
@@ -461,10 +524,9 @@ initial_source, initial_x_range = build_dataframe(
     station_select.value,
     "South-North"
     )
-
 source = ColumnDataSource(initial_source)
 figure_title = update_title(0, "South-North")
-bokeh_formatter = PrintfTickFormatter(format="%d m/s")
+
 color_bar = ColorBar(
      color_mapper=mapper,
      major_label_text_font_size="8pt",
@@ -489,13 +551,14 @@ fig.add_layout(color_bar, 'right')
 fig.xaxis.major_label_orientation = pi / 4
 fig.select_one(HoverTool).tooltips = [
      ('position', '@latlons'),
-     ('wspd', '@wspd'),
+     ('value', '@value'),
      ('altitude', '@altitude{int}'),
 ]
+
 # Plot rectangles representing each point of data
 rects = fig.rect(x='latlons', y='altitude',
                  width=1, height='height',
-                 fill_color={'field': 'wspd', 'transform': mapper},
+                 fill_color={'field': 'value', 'transform': mapper},
                  source=source,
                  line_color=None)
 
@@ -511,6 +574,7 @@ station_pos = fig.cross(
 # add the widgets to a box and layout with fig
 inputs_left = widgetbox(
     station_select,
+    variable_select,
     orientation_select,
     time_slider,
     cbar_slider)
@@ -522,7 +586,7 @@ inputs_right = widgetbox(
     message_panel
     )
 widgets = row(inputs_left, inputs_right)
-figure = row(fig, sizing_mode='scale_height', responsive=True)
-container = column(widgets, figure, responsive=True)
-curdoc().title = "Wind Cross Sections"
+figure = row(fig, sizing_mode='fixed')
+container = column(widgets, figure, sizing_mode='fixed')
+curdoc().title = "WRF Cross Sections"
 curdoc().add_root(container)
