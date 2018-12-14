@@ -19,17 +19,18 @@ import sys
 from bokeh.plotting import (figure, curdoc)
 from bokeh.palettes import Viridis256
 from bokeh.models import (
+    BasicTicker,
+    Button,
+    ColorBar,
     ColumnDataSource,
+    Div,
     HoverTool,
     TextInput,
     LinearColorMapper,
-    BasicTicker,
     PrintfTickFormatter,
-    ColorBar,
     Slider,
     Select,
     RadioGroup,
-    Div,
 )
 from bokeh.layouts import row, column, widgetbox
 import colorcet as cc
@@ -45,9 +46,10 @@ DATA_DIR = os.getenv('WRF_DATA_DIRECTORY')
 if DATA_DIR is None:
     sys.exit('WRF_DATA_DIRECTORY env variable not set.')
 
-# The spread over which to create the cross section in wrf grid points
-# ~1.8km each
-SPREAD = 10
+dirname = os.path.dirname(__file__)
+DEFAULT_ELEVATION_FILE = os.path.join(dirname, 'data', 'elevation.csv')
+ELEVATION_FILE = os.getenv('CROSS_SECTION_ELEVATION_FILE',
+                           DEFAULT_ELEVATION_FILE)
 
 
 def validate_date(attr, old, new):
@@ -145,6 +147,23 @@ def get_weather_file():
     return location
 
 
+def get_elevation_data():
+    """Returns a pandas dataframe object or None if the file
+    does not exist.
+
+    Returns
+    -------
+    elevation_data: pandas dataframe
+        Dataframe of the elevation data.
+    """
+    try:
+        elevation_data = pd.read_csv(ELEVATION_FILE, header=None)
+    except:
+        display_message("Elevation file does not exist.", 'error')
+        return None
+    return elevation_data
+
+
 def open_wrf_file():
     """Returns an netCDF Dataset object or None if the file
     does not exist..
@@ -167,6 +186,9 @@ def colorbar_change(attr, old, new):
     the colorbar to the slider value
     """
     mapper.high = cbar_slider.value
+
+    # water vapor transport uses the x or y wind component, and negative
+    # values are possible
     if variable_select.value == 'Water Vapor Transport':
         mapper.low = -cbar_slider.value
     else:
@@ -226,9 +248,9 @@ def qvapor_colorbar():
 def vt_colorbar():
     """Sets the color mapper settings for water vapor transfer
     """
-    cbar_slider.value = 25
+    cbar_slider.value = 100
     mapper.palette = cc.coolwarm
-    bokeh_formatter.format = "%f m/s"
+    bokeh_formatter.format = "%f gm/gs"
 
 
 def update_variable(attr, old, new):
@@ -243,7 +265,7 @@ def update_variable(attr, old, new):
     update_datasource(attr, old, new)
 
 
-def build_dataframe(time_index, station, orientation):
+def build_dataframes(time_index, station_name, orientation):
     """Gathers the required variables for plotting from
     the WRF file and organizes them into a dataframe to
     be plotted by bokeh.
@@ -259,36 +281,47 @@ def build_dataframe(time_index, station, orientation):
     orientation: string
         "South-North" or "West-East"
     """
-    station_data = location_dict[station]
     wrf_data = open_wrf_file()
     if wrf_data is None:
         return
-    new_source = pd.DataFrame()
+    cross_source = pd.DataFrame()
     lats = wrf_data['XLAT']
     lons = wrf_data['XLONG']
+
+    spread = int(width_slider.value / 2)
+    # Get the indices we need for the current station
+    station_data = location_dict[station_name]
+    station_data['origin'] = tunnel_dist(lats, lons,
+                                         station_data['lat'],
+                                         station_data['lon'])
+    station_data["y_range"] = range(station_data['origin'][0]-spread,
+                                    station_data['origin'][0]+spread)
+    station_data["x_range"] = range(station_data['origin'][1]-spread,
+                                    station_data['origin'][1]+spread)
+
     # If we're opening a file with a shorter time scale,
     # and we're out of bounds, bring the index back in.
-    time_index_max = wrf_data['P'].shape[0]-1
+    time_index_max = wrf_data['Times'].shape[0]-1
     if time_index > time_index_max:
         time_index = time_index_max
         time_slider.value = time_index_max
     time_slider.end = time_index_max
     if orientation == 'South-North':
-        y_range = station_data['vertical_range']
+        y_range = station_data['y_range']
         x_range = station_data['origin'][1]
 
-        latlons = ['%0.2f,%0.2f' %
-                   (lats[y, station_data['origin'][1]],
-                    lons[y, station_data['origin'][1]])
-                   for y in y_range]
+        station_latlons = ['%0.2f,%0.2f' %
+                           (lats[y, station_data['origin'][1]],
+                            lons[y, station_data['origin'][1]])
+                           for y in y_range]
     else:
         y_range = station_data['origin'][0]
-        x_range = station_data['horizontal_range']
+        x_range = station_data['x_range']
 
-        latlons = ['%0.2f,%0.2f' %
-                   (lats[station_data['origin'][0], x],
-                    lons[station_data['origin'][0], x])
-                   for x in x_range]
+        station_latlons = ['%0.2f,%0.2f' %
+                           (lats[station_data['origin'][0], x],
+                            lons[station_data['origin'][0], x])
+                           for x in x_range]
     # Calculate pressure from base state and perturbation pressure
     pressure = (wrf_data['PB'][time_index, :, y_range, x_range] +
                 wrf_data['P'][time_index, :, y_range, x_range])
@@ -303,7 +336,7 @@ def build_dataframe(time_index, station, orientation):
 
     # Append heights for last index, this just reuses
     # the second to last value
-    last_value = np.reshape(heights[-1, :], (1, SPREAD*2))
+    last_value = np.reshape(heights[-1, :], (1, spread*2))
     heights = np.vstack((heights, last_value))
 
     selected_variable = variable_select.value
@@ -329,14 +362,18 @@ def build_dataframe(time_index, station, orientation):
             wspd_component = wrf_data['V'][time_index, :, y_range, x_range]
         variable = mixing_ratio_grams * wspd_component
 
-    # build the source dataframe
+    # build the source dataframes
     y_values = altitude+(heights/2)  # center the y values of each point
-    new_source['altitude'] = y_values.ravel()
-    new_source['height'] = heights.ravel()
-    new_source['value'] = variable.ravel()
-    new_source['latlons'] = latlons * wrf_data['P'].shape[1]
+    cross_source['altitude'] = y_values.ravel()
+    cross_source['height'] = heights.ravel()
+    cross_source['value'] = variable.ravel()
+    cross_source['latlons'] = station_latlons * wrf_data['P'].shape[1]
+
+    elevation_source = pd.DataFrame()
+    elevation_source['elevation'] = elevation_data.iloc[y_range, x_range]
+    elevation_source['latlons'] = station_latlons
     wrf_data.close()
-    return new_source, latlons
+    return cross_source, station_latlons, elevation_source
 
 
 def update_figure(time, orientation, new_x_range):
@@ -348,18 +385,26 @@ def update_figure(time, orientation, new_x_range):
     station_pos.data_source.data.update(get_station_data())
 
 
+def click_update_datasource():
+    """Callback function for buttons to update without passing
+    the normal attr, old, new parameters.
+    """
+    update_datasource(None, None, None)
+
+
 def update_datasource(attr, old, new):
     """Create a new datasource by selecting data from the WRF file using
     bokeh widgets as parameters.
     """
     orientation = orientation_select.labels[orientation_select.active]
-    new_data, new_x_range = build_dataframe(
+    new_data, new_x_range, new_elev = build_dataframes(
             time_slider.value,
             station_select.value,
             orientation)
     if new_data is None:
-        return  # Something happened.
-    source.data.update(new_data)
+        return
+    rects.data_source.data.update(new_data)
+    elevation.data_source.data.update(new_elev)
     update_figure(time_slider.value, orientation, new_x_range)
 
 
@@ -369,8 +414,9 @@ def get_station_data():
     """
     location = location_dict[station_select.value]
     x_range = fig.x_range.factors
+    spread = int(width_slider.value / 2)
     station_info_dict = {
-        'latlons': [x_range[SPREAD]],
+        'latlons': [x_range[spread]],
         'altitude': [location['elevation']],
         'label': [station_select.value],
     }
@@ -457,7 +503,13 @@ time_slider = Slider(start=0, end=1,
                      title="Timestep")
 time_slider.on_change('value', update_datasource)
 
-
+# Width select widget
+width_slider = Slider(start=10, end=190,
+                      value=20, step=10,
+                      title="Cross section width")
+# button to apply width changes
+width_button = Button(label="Apply Width")
+width_button.on_click(click_update_datasource)
 # Location Data
 location_dict = {}
 location_dict['Tucson - UA'] = {'lat': 32.2319,
@@ -469,19 +521,13 @@ location_dict['Chiricahua Gap'] = {'lat': 31.9,
 location_dict['San Pedro River - US/Mexico Border'] = {'lat': 31.334,
                                                        'lon': -110.148,
                                                        'elevation': 1310}
+elevation_data = get_elevation_data()
+
 wrf_data = open_wrf_file()
 lats = wrf_data['XLAT']
 lons = wrf_data['XLONG']
 wrf_time_length = wrf_data['P'].shape[0]
 
-for station in location_dict.values():
-    station['origin'] = tunnel_dist(lats, lons,
-                                    station['lat'],
-                                    station['lon'])
-    station["vertical_range"] = range(station['origin'][0]-SPREAD,
-                                      station['origin'][0]+SPREAD)
-    station["horizontal_range"] = range(station['origin'][1]-SPREAD,
-                                        station['origin'][1]+SPREAD)
 wrf_data.close()
 
 # Define widgets that are dependent on initial data.
@@ -519,12 +565,13 @@ bokeh_formatter = PrintfTickFormatter(format="%d m/s")
 # Define initial data and figure attributes
 mapper = LinearColorMapper(palette=Viridis256, low=0, high=40)
 tools = "pan,wheel_zoom,box_zoom,reset,hover,save"
-initial_source, initial_x_range = build_dataframe(
+initial_source, initial_x_range, elev_source = build_dataframes(
     time_slider.value,
     station_select.value,
     "South-North"
     )
-source = ColumnDataSource(initial_source)
+cross_source = ColumnDataSource(initial_source)
+elevation_source = ColumnDataSource(elev_source)
 figure_title = update_title(0, "South-North")
 
 color_bar = ColorBar(
@@ -544,6 +591,7 @@ fig = figure(
     x_range=initial_x_range,
     x_axis_label="Latitude, Longitude",
     y_axis_label="Altitude(m)",
+    background_fill_color='Gray',
     tools=tools, toolbar_location='left',
     toolbar_sticky=False)
 
@@ -559,9 +607,16 @@ fig.select_one(HoverTool).tooltips = [
 rects = fig.rect(x='latlons', y='altitude',
                  width=1, height='height',
                  fill_color={'field': 'value', 'transform': mapper},
-                 source=source,
+                 source=cross_source,
                  line_color=None)
 
+# Plot surface elevation as a line
+elevation = fig.line(x='latlons',
+                     y='elevation',
+                     line_width=3,
+                     line_color='Black',
+                     source=elevation_source,
+                     legend='Elevation')
 
 # Plot the position  of the station as a red x
 station_init = ColumnDataSource(get_station_data())
@@ -577,7 +632,9 @@ inputs_left = widgetbox(
     variable_select,
     orientation_select,
     time_slider,
-    cbar_slider)
+    cbar_slider,
+    width_slider,
+    width_button)
 
 inputs_right = widgetbox(
     wrf_init_date_input,
