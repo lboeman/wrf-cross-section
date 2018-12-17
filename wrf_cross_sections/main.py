@@ -292,16 +292,17 @@ def build_dataframes(time_index, station_name, orientation):
         return
     lats = wrf_data['XLAT'][:]
     lons = wrf_data['XLONG'][:]
+    sigma_levels = wrf_data['P'].shape[1]
     spread = int(width_slider.value / 2)
     # Get the indices we need for the current station
     station_data = location_dict[station_name]
     station_data['origin'] = tunnel_dist(lats, lons,
                                          station_data['lat'],
                                          station_data['lon'])
-    station_data["y_range"] = np.arange(station_data['origin'][0]-spread,
-                                        station_data['origin'][0]+spread)
-    station_data["x_range"] = np.arange(station_data['origin'][1]-spread,
-                                        station_data['origin'][1]+spread)
+    station_data["y_range"] = range(station_data['origin'][0]-spread,
+                                    station_data['origin'][0]+spread)
+    station_data["x_range"] = range(station_data['origin'][1]-spread,
+                                    station_data['origin'][1]+spread)
 
     # If we're opening a file with a shorter time scale,
     # and we're out of bounds, bring the index back in.
@@ -315,6 +316,7 @@ def build_dataframes(time_index, station_name, orientation):
     if orientation == 'South-North':
         y_range = station_data['y_range']
         x_range = station_data['origin'][1]
+        plot_domain = y_range
 
         station_latlons = ['%0.2f,%0.2f' %
                            (lats[y, station_data['origin'][1]],
@@ -323,6 +325,7 @@ def build_dataframes(time_index, station_name, orientation):
     else:
         y_range = station_data['origin'][0]
         x_range = station_data['x_range']
+        plot_domain = x_range
 
         station_latlons = ['%0.2f,%0.2f' %
                            (lats[station_data['origin'][0], x],
@@ -377,20 +380,20 @@ def build_dataframes(time_index, station_name, orientation):
     cross_source['altitude'] = y_values.ravel()
     cross_source['height'] = heights.ravel()
     cross_source['value'] = variable.ravel()
-    cross_source['latlons'] = station_latlons * wrf_data['P'].shape[1]
+    cross_source['index'] = np.tile(plot_domain, sigma_levels)
 
     elevation_source = pd.DataFrame()
     elevation_source['elevation'] = elevation_data.iloc[y_range, x_range]
-    elevation_source['latlons'] = station_latlons
+    station_latlons = dict(zip(plot_domain, station_latlons))
     return cross_source, station_latlons, elevation_source
 
 
-def update_figure(time, orientation, new_x_range):
+def update_figure(time, orientation, new_x_labels):
     """Updates figure's text labels.
     """
     display_message()
     fig.title.text = update_title(time, orientation)
-    fig.x_range.factors = new_x_range
+    fig.xaxis.major_label_overrides = new_x_labels
     station_pos.data_source.data.update(get_station_data())
 
 
@@ -406,13 +409,13 @@ def update_datasource(attr, old, new):
     bokeh widgets as parameters.
     """
     orientation = orientation_select.labels[orientation_select.active]
-    new_data, new_x_range, new_elev = build_dataframes(
+    new_data, new_x_labels, new_elev = build_dataframes(
             time_slider.value,
             station_select.value,
             orientation)
     if new_data is None:
         return
-    update_figure(time_slider.value, orientation, new_x_range)
+    update_figure(time_slider.value, orientation, new_x_labels)
     rects.data_source.data.update(new_data)
     elevation.data_source.data['index'] = new_elev.index
     elevation.data_source.data.update(new_elev)
@@ -423,10 +426,13 @@ def get_station_data():
     based on widget state.
     """
     location = location_dict[station_select.value]
-    x_range = fig.x_range.factors
-    spread = int(width_slider.value / 2)
+    orientation = orientation_select.labels[orientation_select.active]
+    if orientation == 'South-North':
+        x_value = location['origin'][0]
+    else:
+        x_value = location['origin'][1]
     station_info_dict = {
-        'latlons': [x_range[spread]],
+        'x_value': [x_value],
         'altitude': [location['elevation']],
         'label': [station_select.value],
     }
@@ -442,8 +448,7 @@ def display_message(msg="", msg_type=None):
     msg: str
         The message to display.
     msg_type: str
-        Really, just pass in "error" if you want the text to
-        red.
+        Passing in 'error' sets the message color to red.
     """
     if msg_type == "error":
         message_panel.text = f'<p style="color:#F00">{msg}</p>'
@@ -583,7 +588,7 @@ bokeh_formatter = PrintfTickFormatter(format="%d m/s")
 # Define initial data and figure attributes
 mapper = LinearColorMapper(palette=Viridis256, low=0, high=40)
 tools = "pan,wheel_zoom,box_zoom,reset,hover,save"
-initial_cross_df, initial_x_range, initial_elev_df = build_dataframes(
+initial_cross_df, initial_x_labels, initial_elev_df = build_dataframes(
     time_slider.value,
     station_select.value,
     "South-North"
@@ -606,7 +611,6 @@ fig = figure(
     title=figure_title,
     plot_width=1000,
     plot_height=600,
-    x_range=initial_x_range,
     x_axis_label="Latitude, Longitude",
     y_axis_label="Altitude(m)",
     background_fill_color='Gray',
@@ -614,7 +618,9 @@ fig = figure(
     toolbar_sticky=False)
 
 fig.add_layout(color_bar, 'right')
-fig.xaxis.major_label_orientation = pi / 4
+fig.xaxis.major_label_overrides = initial_x_labels
+fig.xaxis.ticker = BasicTicker(desired_num_ticks=5,
+                               num_minor_ticks=0)
 fig.select_one(HoverTool).tooltips = [
      ('position', '@latlons'),
      ('value', '@value'),
@@ -622,15 +628,14 @@ fig.select_one(HoverTool).tooltips = [
 ]
 
 # Plot rectangles representing each point of data
-rects = fig.rect(x='latlons', y='altitude',
+rects = fig.rect(x='index', y='altitude',
                  width=1, height='height',
                  fill_color={'field': 'value', 'transform': mapper},
                  source=cross_source,
                  line_color=None)
 
 # Plot surface elevation as a line
-elevation = fig.line(x='latlons',
-                     y='elevation',
+elevation = fig.line(x='index', y='elevation',
                      line_width=2,
                      line_color='Black',
                      source=elevation_source,
@@ -639,7 +644,7 @@ elevation = fig.line(x='latlons',
 # Plot the position  of the station as a red x
 station_init = ColumnDataSource(get_station_data())
 station_pos = fig.cross(
-    x='latlons',
+    x='x_value',
     y='altitude',
     source=station_init,
     size=10, color="#FF0000", legend='label')
