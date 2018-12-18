@@ -19,7 +19,8 @@ Install requirements using a command such as:
     * WRF_DATA_DIRECTORY: The path to the directory to find WRF data in. The directory must contain the following structure:
 
 		`<year>/<month>/<day>/WRF<model>_<initialization time>/wrf_d02_hourly.nc` where month and day are two digit, zero-padded numbers.
-	* CROSS_SECTION_ELEVATION_FILE: The absolute path to a csv file containing the elevations of each grid point in the WRF domain. 	
+	* CROSS_SECTION_ELEVATION_FILE: The absolute path to a csv file containing the elevations of each grid point in the WRF domain. Defaults to the provided file in the `wrf_cross_sections/data` directory.
+
   * The app can be run from the root of the source folder with the following command.:
 ```
 WRF_DATA_DIRECTORY=<path to wrf files> ./run
@@ -40,5 +41,6 @@ The script may be run from the `scripts` directory with the following command.
 python srtm_to_csv.py <path to WRF file> <path to SRTM file directory> <path to output file>
 ```
 
+SRTM data courtesy of the U.S. Geological Survey.
 
 [NASA Shuttle Radar Topography Mission](https://www2.jpl.nasa.gov/srtm/) 
