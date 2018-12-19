@@ -71,7 +71,7 @@ def selected_date():
     day = parser.parse(wrf_init_date_input.value)
     hour = wrf_init_time_select.value
     hour = timedelta(hours=int(hour[:-1]))
-    return day+hour
+    return day + hour
 
 
 def pressure_to_height(pressure):
@@ -108,7 +108,7 @@ def tunnel_dist(lat_ar, lon_ar, lat, lon):
         A list of ints, length 2 representing the y,x coordinates in
         the wrf file.
     """
-    rad_factor = pi/180.0  # cos/sin require angles in rads
+    rad_factor = pi / 180.0  # cos/sin require angles in rads
     lats = lat_ar[:] * rad_factor
     lons = lon_ar[:] * rad_factor
     lat_rad = lat * rad_factor
@@ -116,8 +116,8 @@ def tunnel_dist(lat_ar, lon_ar, lat, lon):
 
     clat, clon = cos(lats), cos(lons)
     slat, slon = sin(lats), sin(lons)
-    delx = cos(lat_rad)*cos(lon_rad) - clat*clon
-    dely = cos(lat_rad)*sin(lon_rad) - clat*slon
+    delx = cos(lat_rad) * cos(lon_rad) - clat * clon
+    dely = cos(lat_rad) * sin(lon_rad) - clat * slon
     delz = sin(lat_rad) - slat
     dist_sq = delx**2 + dely**2 + delz**2
     idx = dist_sq.argmin()  # 1d index of the minimum value
@@ -226,11 +226,11 @@ def update_title(time_index, orientation):
     curr_time = datetime.strptime(curr_byte_time.decode('utf-8'),
                                   "%Y-%m-%d_%H:%M:%S")
     plot_title = '{} {} ({}) Initialized: {}   Valid: {}'.format(
-                  station_name,
-                  variable,
-                  orientation,
-                  wrf_init_time.strftime(time_format),
-                  curr_time.strftime(time_format))
+        station_name,
+        variable,
+        orientation,
+        wrf_init_time.strftime(time_format),
+        curr_time.strftime(time_format))
     return plot_title
 
 
@@ -299,14 +299,14 @@ def build_dataframes(time_index, station_name, orientation):
     station_data['origin'] = tunnel_dist(lats, lons,
                                          station_data['lat'],
                                          station_data['lon'])
-    station_data["y_range"] = range(station_data['origin'][0]-spread,
-                                    station_data['origin'][0]+spread)
-    station_data["x_range"] = range(station_data['origin'][1]-spread,
-                                    station_data['origin'][1]+spread)
+    station_data["y_range"] = range(station_data['origin'][0] - spread,
+                                    station_data['origin'][0] + spread)
+    station_data["x_range"] = range(station_data['origin'][1] - spread,
+                                    station_data['origin'][1] + spread)
 
     # If we're opening a file with a shorter time scale,
     # and we're out of bounds, bring the index back in.
-    time_index_max = wrf_data['Times'].shape[0]-1
+    time_index_max = wrf_data['Times'].shape[0] - 1
     if time_index > time_index_max:
         time_index = time_index_max
         time_slider.value = time_index_max
@@ -333,8 +333,9 @@ def build_dataframes(time_index, station_name, orientation):
                            for x in x_range]
 
     # Calculate pressure from base state and perturbation pressure
-    pressure = (wrf_data['PB'][time_index, :, y_range, x_range] +
-                wrf_data['P'][time_index, :, y_range, x_range])
+    perurbation_pressure = wrf_data['PB'][time_index, :, y_range, x_range]
+    pressure_var = wrf_data['P'][time_index, :, y_range, x_range]
+    pressure = perurbation_pressure + pressure_var
 
     # Convert pressure to altitude
     altitude = pressure_to_height(pressure)
@@ -346,7 +347,7 @@ def build_dataframes(time_index, station_name, orientation):
 
     # Append heights for last index, this just reuses
     # the second to last value
-    last_value = np.reshape(heights[-1, :], (1, spread*2))
+    last_value = np.reshape(heights[-1, :], (1, spread * 2))
     heights = np.vstack((heights, last_value))
 
     selected_variable = variable_select.value
@@ -355,8 +356,7 @@ def build_dataframes(time_index, station_name, orientation):
 
         wspd_y_component = wrf_data['V'][time_index, :, y_range, x_range]
 
-        variable = np.sqrt(wspd_x_component**2 +
-                           wspd_y_component**2)
+        variable = np.sqrt(wspd_x_component**2 + wspd_y_component**2)
     elif selected_variable == 'Water Vapor Mixing Ratio':
         # kg/kg to g/kg
         mixing_ratio = wrf_data['QVAPOR'][time_index, :, y_range, x_range]
@@ -375,7 +375,7 @@ def build_dataframes(time_index, station_name, orientation):
     wrf_data.close()
 
     # build the source dataframes
-    y_values = altitude+(heights/2)  # center the y values of each point
+    y_values = altitude + (heights / 2)  # center the y values of each point
     cross_source = pd.DataFrame()
     cross_source['altitude'] = y_values.ravel()
     cross_source['height'] = heights.ravel()
@@ -410,9 +410,9 @@ def update_datasource(attr, old, new):
     """
     orientation = orientation_select.labels[orientation_select.active]
     new_data, new_x_labels, new_elev = build_dataframes(
-            time_slider.value,
-            station_select.value,
-            orientation)
+        time_slider.value,
+        station_select.value,
+        orientation)
     if new_data is None:
         return
     update_figure(time_slider.value, orientation, new_x_labels)
@@ -479,7 +479,7 @@ def find_initial():
                     initial_date = initial_date.strftime("%Y/%m/%d")
                 return initial_time, initial_date, initial_model
         days_to_try -= 1
-        initial_date = initial_date-timedelta(days=1)
+        initial_date = initial_date - timedelta(days=1)
         if days_to_try <= 0:
             raise Exception("Could not locate forecast newer than 10 days")
 
@@ -592,19 +592,19 @@ initial_cross_df, initial_x_labels, initial_elev_df = build_dataframes(
     time_slider.value,
     station_select.value,
     "South-North"
-    )
+)
 cross_source = ColumnDataSource(initial_cross_df)
 elevation_source = ColumnDataSource(initial_elev_df)
 figure_title = update_title(0, "South-North")
 
 color_bar = ColorBar(
-     color_mapper=mapper,
-     major_label_text_font_size="8pt",
-     ticker=BasicTicker(desired_num_ticks=10),
-     formatter=bokeh_formatter,
-     label_standoff=10,
-     border_line_color=None,
-     location=(0, 0))
+    color_mapper=mapper,
+    major_label_text_font_size="8pt",
+    ticker=BasicTicker(desired_num_ticks=10),
+    formatter=bokeh_formatter,
+    label_standoff=10,
+    border_line_color=None,
+    location=(0, 0))
 
 # Initialize bokeh figure
 fig = figure(
@@ -622,9 +622,9 @@ fig.xaxis.major_label_overrides = initial_x_labels
 fig.xaxis.ticker = BasicTicker(desired_num_ticks=5,
                                num_minor_ticks=0)
 fig.select_one(HoverTool).tooltips = [
-     ('position', '@latlons'),
-     ('value', '@value'),
-     ('altitude', '@altitude{int}'),
+    ('position', '@latlons'),
+    ('value', '@value'),
+    ('altitude', '@altitude{int}'),
 ]
 
 # Plot rectangles representing each point of data
@@ -663,8 +663,8 @@ inputs_right = widgetbox(
     wrf_init_date_input,
     wrf_init_time_select,
     wrf_model_select,
-    message_panel
-    )
+    message_panel)
+
 widgets = row(inputs_left, inputs_right)
 figure = row(fig, sizing_mode='fixed')
 container = column(widgets, figure, sizing_mode='fixed')
